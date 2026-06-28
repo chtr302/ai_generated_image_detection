@@ -1,0 +1,1 @@
+# Đây là thư mục để xây dựng các Module nhận diện các dấu hiệu của ảnh thật và ảnh AI

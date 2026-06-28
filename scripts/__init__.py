@@ -1,0 +1,1 @@
+# Đây là thư mục để test ngoài các (AI code vào đây)
