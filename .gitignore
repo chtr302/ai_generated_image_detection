@@ -13,3 +13,6 @@ wheels/
 # Folder
 dataset
 docs
+
+pyproject.toml
+uv.lock
