@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import unittest
 from pathlib import Path
@@ -10,14 +10,20 @@ class TrainScriptTest(unittest.TestCase):
             text = Path("scripts", script).read_text(encoding="utf-8")
             self.assertIn("$DataRoot", text)
             self.assertIn("--data-root", text)
+            self.assertIn("--hf-dataset", text)
+            self.assertIn("--hf-shuffle-buffer", text)
             self.assertNotIn("--train-dir", text)
 
     def test_bash_script_uses_data_root(self) -> None:
         text = Path("scripts", "train_dual_t4_ddp.sh").read_text(encoding="utf-8")
         self.assertIn("DATA_ROOT", text)
         self.assertIn("--data-root", text)
+        self.assertIn("--hf-dataset", text)
+        self.assertIn("--hf-shuffle-buffer", text)
         self.assertNotIn("TRAIN_DIR", text)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -10,7 +10,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 
-from src.data.dataloader import DataLoaderConfig, build_datasets
+from src.data.dataloader import DEFAULT_HF_DATASET, DataLoaderConfig, build_datasets
 from src.model.architectures.detector import build_detector
 from src.model.batch import unpack_batch
 from src.model.evaluate import evaluate_binary_classifier
@@ -20,10 +20,16 @@ from src.xai.concept_bottleneck import DEFAULT_CONCEPTS
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train AI-generated image detector with optional DDP.")
-    parser.add_argument("--data-root", default=None, help="Root co train/val/test hoac real/ai.")
-    parser.add_argument("--train-dir", default=None, help="Legacy alias, vi du data/train.")
-    parser.add_argument("--val-dir", default=None, help="Legacy only; val duoc doc tu data-root neu co.")
+    parser.add_argument("--data-root", default=None, help="Root folder with train/val/test or real/ai folders.")
+    parser.add_argument("--train-dir", default=None, help="Legacy alias, for example data/train.")
+    parser.add_argument("--val-dir", default=None, help="Legacy only; val is read from data-root when available.")
     parser.add_argument("--output-dir", default="outputs/ai_detector")
+    parser.add_argument("--hf-dataset", default=None, help=f"Hugging Face dataset id, for example {DEFAULT_HF_DATASET}.")
+    parser.add_argument("--hf-config-name", default=None)
+    parser.add_argument("--hf-cache-dir", default=None)
+    parser.add_argument("--hf-trust-remote-code", action="store_true")
+    parser.add_argument("--hf-no-streaming", action="store_true", help="Disable Hugging Face streaming and cache the split locally.")
+    parser.add_argument("--hf-shuffle-buffer", type=int, default=10_000, help="Streaming shuffle buffer for train split.")
     parser.add_argument("--image-size", type=int, default=384)
     parser.add_argument("--batch-size", type=int, default=8, help="Per-GPU batch size.")
     parser.add_argument("--epochs", type=int, default=20)
@@ -35,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concept-count", type=int, default=len(DEFAULT_CONCEPTS))
     parser.add_argument("--amp", choices=["none", "fp16", "bf16"], default="fp16")
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--max-train-steps", type=int, default=None, help="Limit batches per epoch for streaming/debug runs.")
     return parser.parse_args()
 
 
@@ -70,6 +77,12 @@ def main() -> None:
     data_root = _resolve_data_root(args)
     loaders, train_sampler = build_train_loaders(
         data_root=data_root,
+        hf_dataset_id=args.hf_dataset,
+        hf_config_name=args.hf_config_name,
+        hf_cache_dir=args.hf_cache_dir,
+        hf_trust_remote_code=args.hf_trust_remote_code,
+        hf_streaming=not args.hf_no_streaming,
+        hf_shuffle_buffer=args.hf_shuffle_buffer,
         batch_size=args.batch_size,
         image_size=args.image_size,
         num_workers=args.num_workers,
@@ -83,6 +96,10 @@ def main() -> None:
     for epoch in range(start_epoch, args.epochs):
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
+        else:
+            train_dataset = getattr(train_loader, "dataset", None)
+            if hasattr(train_dataset, "set_epoch"):
+                train_dataset.set_epoch(epoch)
         train_metrics = train_one_epoch(
             model=model,
             loader=train_loader,
@@ -94,6 +111,7 @@ def main() -> None:
             grad_accum=args.grad_accum,
             epoch=epoch,
             is_main=is_main,
+            max_steps=args.max_train_steps,
         )
         val_metrics = evaluate_binary_classifier(model, val_loader, device, amp_dtype) if val_loader else {}
 
@@ -120,12 +138,18 @@ def train_one_epoch(
     grad_accum: int,
     epoch: int,
     is_main: bool,
+    max_steps: int | None = None,
 ) -> dict[str, float]:
     model.train()
     optimizer.zero_grad(set_to_none=True)
     totals = torch.zeros(3, device=device)
+    pending_steps = 0
+    loader_len = _safe_len(loader)
 
     for step, batch in enumerate(loader):
+        if max_steps is not None and step >= max_steps:
+            break
+
         images, labels = unpack_batch(batch, device)
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_dtype is not None and device.type == "cuda"):
@@ -134,12 +158,10 @@ def train_one_epoch(
             scaled_loss = loss / grad_accum
 
         scaler.scale(scaled_loss).backward()
-        if (step + 1) % grad_accum == 0 or (step + 1) == len(loader):
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
+        pending_steps += 1
+        if pending_steps >= grad_accum:
+            _optimizer_step(model, optimizer, scaler)
+            pending_steps = 0
 
         preds = (outputs["prob_ai"].detach() >= 0.5).float()
         totals[0] += metrics["loss"] * labels.numel()
@@ -147,7 +169,11 @@ def train_one_epoch(
         totals[2] += labels.numel()
 
         if is_main and step % 25 == 0:
-            print(f"epoch={epoch} step={step}/{len(loader)} loss={float(metrics['loss']):.4f}")
+            total_steps = str(loader_len) if loader_len is not None else "?"
+            print(f"epoch={epoch} step={step}/{total_steps} loss={float(metrics['loss']):.4f}")
+
+    if pending_steps > 0:
+        _optimizer_step(model, optimizer, scaler)
 
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(totals, op=dist.ReduceOp.SUM)
@@ -157,15 +183,27 @@ def train_one_epoch(
 
 
 def build_train_loaders(
-    data_root: str | Path,
+    data_root: str | Path | None,
     batch_size: int,
     image_size: int,
     num_workers: int,
     distributed: bool,
     pin_memory: bool,
+    hf_dataset_id: str | None = None,
+    hf_config_name: str | None = None,
+    hf_cache_dir: str | Path | None = None,
+    hf_trust_remote_code: bool = False,
+    hf_streaming: bool = True,
+    hf_shuffle_buffer: int = 10_000,
 ) -> tuple[dict[str, DataLoader], DistributedSampler | None]:
     config = DataLoaderConfig(
         data_root=data_root,
+        hf_dataset_id=hf_dataset_id,
+        hf_config_name=hf_config_name,
+        hf_cache_dir=hf_cache_dir,
+        hf_trust_remote_code=hf_trust_remote_code,
+        hf_streaming=hf_streaming,
+        hf_shuffle_buffer=hf_shuffle_buffer,
         image_size=image_size,
         batch_size=batch_size,
         num_workers=num_workers,
@@ -173,15 +211,16 @@ def build_train_loaders(
     )
     datasets = build_datasets(config)
     if "train" not in datasets:
-        raise ValueError("Dataset can co split train hoac anh chua chia split de tu tach train/val/test.")
+        raise ValueError("Dataset needs a train split or unsplit images that can be split automatically.")
 
     train_sampler: DistributedSampler | None = None
     loaders: dict[str, DataLoader] = {}
     for split, dataset in datasets.items():
         sampler = None
-        shuffle = split == "train"
-        drop_last = split == "train"
-        if split == "train" and distributed:
+        is_iterable = isinstance(dataset, torch.utils.data.IterableDataset)
+        shuffle = split == "train" and not is_iterable
+        drop_last = False
+        if split == "train" and distributed and not is_iterable:
             sampler = DistributedSampler(dataset, shuffle=True, drop_last=drop_last)
             train_sampler = sampler
             shuffle = False
@@ -198,13 +237,34 @@ def build_train_loaders(
     return loaders, train_sampler
 
 
-def _resolve_data_root(args: argparse.Namespace) -> Path:
+def _optimizer_step(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler,
+) -> None:
+    scaler.unscale_(optimizer)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    scaler.step(optimizer)
+    scaler.update()
+    optimizer.zero_grad(set_to_none=True)
+
+
+def _safe_len(loader) -> int | None:
+    try:
+        return len(loader)
+    except TypeError:
+        return None
+
+
+def _resolve_data_root(args: argparse.Namespace) -> Path | None:
+    if args.hf_dataset:
+        return Path(args.data_root) if args.data_root else None
     if args.data_root:
         return Path(args.data_root)
     if args.train_dir:
         train_dir = Path(args.train_dir)
         return train_dir.parent if train_dir.name.lower() in {"train", "training"} else train_dir
-    raise ValueError("Can truyen --data-root, hoac --train-dir de tu suy ra data root.")
+    raise ValueError("Pass --data-root for local folders, or --hf-dataset for Hugging Face.")
 
 
 def _load_checkpoint(
@@ -261,4 +321,5 @@ def _amp_dtype(amp: str) -> torch.dtype | None:
 
 if __name__ == "__main__":
     main()
+
 
