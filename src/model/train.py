@@ -113,7 +113,7 @@ def main() -> None:
             is_main=is_main,
             max_steps=args.max_train_steps,
         )
-        val_metrics = evaluate_binary_classifier(model, val_loader, device, amp_dtype) if val_loader else {}
+        val_metrics = evaluate_binary_classifier(model, val_loader, device, amp_dtype) if _loader_exists(val_loader) else {}
 
         if is_main:
             print(json.dumps({"epoch": epoch, "train": train_metrics, "val": val_metrics}, indent=2))
@@ -237,6 +237,10 @@ def build_train_loaders(
     return loaders, train_sampler
 
 
+def _loader_exists(loader) -> bool:
+    return loader is not None
+
+
 def _optimizer_step(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -321,5 +325,3 @@ def _amp_dtype(amp: str) -> torch.dtype | None:
 
 if __name__ == "__main__":
     main()
-
-
