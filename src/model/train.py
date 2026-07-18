@@ -41,7 +41,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concept-count", type=int, default=len(DEFAULT_CONCEPTS))
     parser.add_argument("--amp", choices=["none", "fp16", "bf16"], default="fp16")
     parser.add_argument("--resume", default=None)
-    parser.add_argument("--max-train-steps", type=int, default=None, help="Limit batches per epoch for streaming/debug runs.")
+    parser.add_argument("--max-train-steps", type=int, default=None, help="Limit train batches per epoch for streaming/debug runs.")
+    parser.add_argument("--max-val-steps", type=int, default=None, help="Limit validation batches per epoch for faster Colab runs.")
+    parser.add_argument("--log-every", type=int, default=100, help="Print train loss every N steps.")
     return parser.parse_args()
 
 
@@ -112,8 +114,9 @@ def main() -> None:
             epoch=epoch,
             is_main=is_main,
             max_steps=args.max_train_steps,
+            log_every=args.log_every,
         )
-        val_metrics = evaluate_binary_classifier(model, val_loader, device, amp_dtype) if _loader_exists(val_loader) else {}
+        val_metrics = evaluate_binary_classifier(model, val_loader, device, amp_dtype, args.max_val_steps) if _loader_exists(val_loader) else {}
 
         if is_main:
             print(json.dumps({"epoch": epoch, "train": train_metrics, "val": val_metrics}, indent=2))
@@ -139,6 +142,7 @@ def train_one_epoch(
     epoch: int,
     is_main: bool,
     max_steps: int | None = None,
+    log_every: int = 100,
 ) -> dict[str, float]:
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -168,7 +172,7 @@ def train_one_epoch(
         totals[1] += (preds == labels).sum()
         totals[2] += labels.numel()
 
-        if is_main and step % 25 == 0:
+        if is_main and log_every > 0 and step % log_every == 0:
             total_steps = str(loader_len) if loader_len is not None else "?"
             print(f"epoch={epoch} step={step}/{total_steps} loss={float(metrics['loss']):.4f}")
 

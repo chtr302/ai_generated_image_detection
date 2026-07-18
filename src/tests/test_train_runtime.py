@@ -94,8 +94,18 @@ class TrainRuntimeTest(unittest.TestCase):
         metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"))
 
         self.assertIn("accuracy", metrics)
+        self.assertIn("balanced_accuracy", metrics)
         self.assertIn("precision_ai", metrics)
+        self.assertIn("specificity_real", metrics)
+        self.assertIn("predicted_ai_rate", metrics)
         self.assertIn("f1_ai", metrics)
+
+    def test_evaluate_respects_max_steps(self) -> None:
+        dataset = TensorDataset(torch.randn(6, 3, 16, 16), torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]))
+        loader = DataLoader(dataset, batch_size=2)
+        metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"), max_steps=1)
+
+        self.assertEqual(metrics["false_positive"] + metrics["false_negative"] + metrics["accuracy"] * 2, 2)
 
     def test_build_train_loaders_uses_new_data_api(self) -> None:
         with TemporaryDirectory() as tmp:
