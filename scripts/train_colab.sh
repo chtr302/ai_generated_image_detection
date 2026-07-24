@@ -6,22 +6,23 @@ set -euo pipefail
 
 DATA_ROOT="${DATA_ROOT:-}"
 HF_DATASET="${HF_DATASET:-Rajarshi-Roy-research/Defactify_Image_Dataset}"
-HF_CACHE_DIR="${HF_CACHE_DIR:-/content/drive/MyDrive/hf_cache}"
-HF_NO_STREAMING="${HF_NO_STREAMING:-0}"
+HF_CACHE_DIR="${HF_CACHE_DIR:-/content/hf_cache}"
+HF_NO_STREAMING="${HF_NO_STREAMING:-1}"
 HF_SHUFFLE_BUFFER="${HF_SHUFFLE_BUFFER:-10000}"
 OUTPUT_DIR="${OUTPUT_DIR:-/content/drive/MyDrive/ai_detector_outputs}"
-IMAGE_SIZE="${IMAGE_SIZE:-384}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
+IMAGE_SIZE="${IMAGE_SIZE:-224}"
+BATCH_SIZE="${BATCH_SIZE:-64}"
 EPOCHS="${EPOCHS:-40}"
 GRAD_ACCUM="${GRAD_ACCUM:-2}"
 NEC="${NEC:-10}"
 AMP="${AMP:-fp16}"
-NUM_WORKERS="${NUM_WORKERS:-0}"
+NUM_WORKERS="${NUM_WORKERS:-2}"
 TRAIN_IMAGE_COUNT="${TRAIN_IMAGE_COUNT:-42000}"
 TARGET_DATA_PASSES="${TARGET_DATA_PASSES:-4}"
 MAX_TRAIN_STEPS="${MAX_TRAIN_STEPS:-auto}"
 MAX_VAL_STEPS="${MAX_VAL_STEPS:-250}"
-LOG_EVERY="${LOG_EVERY:-100}"
+LOG_EVERY="${LOG_EVERY:-20}"
+PROGRESS="${PROGRESS:-bar}"
 RESUME="${RESUME:-}"
 
 if [[ "$MAX_TRAIN_STEPS" == "auto" ]]; then
@@ -48,6 +49,7 @@ ARGS=(
   --num-workers "$NUM_WORKERS"
   --max-val-steps "$MAX_VAL_STEPS"
   --log-every "$LOG_EVERY"
+  --progress "$PROGRESS"
 )
 
 if [[ -n "$DATA_ROOT" ]]; then

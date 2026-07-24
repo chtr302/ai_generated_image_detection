@@ -107,6 +107,13 @@ class TrainRuntimeTest(unittest.TestCase):
 
         self.assertEqual(metrics["false_positive"] + metrics["false_negative"] + metrics["accuracy"] * 2, 2)
 
+    def test_evaluate_respects_max_samples(self) -> None:
+        dataset = TensorDataset(torch.randn(6, 3, 16, 16), torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]))
+        loader = DataLoader(dataset, batch_size=4)
+        metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"), max_samples=3)
+
+        self.assertEqual(metrics["sample_count"], 3)
+
     def test_build_train_loaders_uses_new_data_api(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

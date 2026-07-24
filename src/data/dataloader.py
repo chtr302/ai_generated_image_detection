@@ -70,14 +70,18 @@ def build_dataloaders(config: DataLoaderConfig) -> dict[str, object]:
     loaders: dict[str, object] = {}
     for split_name, dataset in build_datasets(config).items():
         is_iterable = isinstance(dataset, IterableDataset)
-        loaders[split_name] = DataLoader(
-            dataset,
-            batch_size=config.batch_size,
-            shuffle=(split_name == "train" and not is_iterable),
-            num_workers=config.num_workers,
-            pin_memory=config.pin_memory,
-            drop_last=(split_name == "train" and config.drop_last_train_batch),
-        )
+        loader_kwargs = {
+            "batch_size": config.batch_size,
+            "shuffle": split_name == "train" and not is_iterable,
+            "num_workers": config.num_workers,
+            "pin_memory": config.pin_memory,
+            "drop_last": split_name == "train" and config.drop_last_train_batch,
+        }
+        if config.num_workers > 0 and not is_iterable:
+            loader_kwargs["persistent_workers"] = True
+            loader_kwargs["prefetch_factor"] = 2
+
+        loaders[split_name] = DataLoader(dataset, **loader_kwargs)
     return loaders
 
 

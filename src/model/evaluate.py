@@ -13,15 +13,26 @@ def evaluate_binary_classifier(
     device: torch.device,
     amp_dtype: torch.dtype | None = None,
     max_steps: int | None = None,
+    max_samples: int | None = None,
 ) -> dict[str, float]:
     model.eval()
     totals = torch.zeros(6, device=device)
+    processed_samples = 0
 
     for step, batch in enumerate(loader):
         if max_steps is not None and step >= max_steps:
             break
+        if max_samples is not None and processed_samples >= max_samples:
+            break
 
         images, labels = unpack_batch(batch, device)
+        if max_samples is not None:
+            remaining = max_samples - processed_samples
+            if remaining <= 0:
+                break
+            if labels.numel() > remaining:
+                images = images[:remaining]
+                labels = labels[:remaining]
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_dtype is not None and device.type == "cuda"):
             outputs = model(images)
 
@@ -33,6 +44,7 @@ def evaluate_binary_classifier(
         totals[3] += (preds == 1).sum()
         totals[4] += ((preds == 1) & (labels == 0)).sum()
         totals[5] += ((preds == 0) & (labels == 1)).sum()
+        processed_samples += labels.numel()
 
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(totals, op=dist.ReduceOp.SUM)
@@ -59,4 +71,5 @@ def evaluate_binary_classifier(
         "predicted_ai_rate": predicted_ai_rate,
         "false_positive": false_positive,
         "false_negative": false_negative,
+        "sample_count": count,
     }
