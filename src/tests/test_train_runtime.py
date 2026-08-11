@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import unittest
 from pathlib import Path
@@ -6,12 +6,17 @@ from tempfile import TemporaryDirectory
 
 import torch
 from PIL import Image
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, IterableDataset, TensorDataset
 
 from src.model.batch import unpack_batch
 from src.model.evaluate import evaluate_binary_classifier
 from src.model.loss import DetectionLoss
-from src.model.train import build_grad_scaler, build_train_loaders, train_one_epoch
+from src.model.train import _loader_exists, build_grad_scaler, build_train_loaders, train_one_epoch
+
+
+class NoLenIterableDataset(IterableDataset):
+    def __iter__(self):
+        yield torch.randn(3, 8, 8), torch.tensor(1.0)
 
 
 class TinyDetector(torch.nn.Module):
@@ -51,6 +56,13 @@ class TrainRuntimeTest(unittest.TestCase):
         self.assertTrue(torch.equal(tuple_images, dict_images))
         self.assertTrue(torch.equal(tuple_labels, dict_labels))
 
+    def test_loader_exists_does_not_call_len_on_iterable_loader(self) -> None:
+        loader = DataLoader(NoLenIterableDataset(), batch_size=1)
+
+        self.assertTrue(_loader_exists(loader))
+        with self.assertRaises(TypeError):
+            len(loader)
+
     def test_train_one_epoch_runs_without_runtime_error(self) -> None:
         dataset = TensorDataset(torch.randn(4, 3, 16, 16), torch.tensor([0.0, 1.0, 0.0, 1.0]))
         loader = DataLoader(dataset, batch_size=2)
@@ -82,8 +94,25 @@ class TrainRuntimeTest(unittest.TestCase):
         metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"))
 
         self.assertIn("accuracy", metrics)
+        self.assertIn("balanced_accuracy", metrics)
         self.assertIn("precision_ai", metrics)
+        self.assertIn("specificity_real", metrics)
+        self.assertIn("predicted_ai_rate", metrics)
         self.assertIn("f1_ai", metrics)
+
+    def test_evaluate_respects_max_steps(self) -> None:
+        dataset = TensorDataset(torch.randn(6, 3, 16, 16), torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]))
+        loader = DataLoader(dataset, batch_size=2)
+        metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"), max_steps=1)
+
+        self.assertEqual(metrics["false_positive"] + metrics["false_negative"] + metrics["accuracy"] * 2, 2)
+
+    def test_evaluate_respects_max_samples(self) -> None:
+        dataset = TensorDataset(torch.randn(6, 3, 16, 16), torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]))
+        loader = DataLoader(dataset, batch_size=4)
+        metrics = evaluate_binary_classifier(TinyDetector(), loader, torch.device("cpu"), max_samples=3)
+
+        self.assertEqual(metrics["sample_count"], 3)
 
     def test_build_train_loaders_uses_new_data_api(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -111,7 +140,27 @@ class TrainRuntimeTest(unittest.TestCase):
         self.assertIn("path", metadata)
         self.assertIn("val", loaders)
 
+    def test_build_train_loaders_keeps_small_train_batch(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for label, color in (("real", (32, 96, 160)), ("ai", (180, 60, 80))):
+                path = root / "train" / label / f"{label}.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (48, 48), color=color).save(path)
+
+            loaders, _ = build_train_loaders(
+                data_root=root,
+                batch_size=8,
+                image_size=32,
+                num_workers=0,
+                distributed=False,
+                pin_memory=False,
+            )
+            batches = list(loaders["train"])
+
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(tuple(batches[0][0].shape), (2, 3, 32, 32))
+
 
 if __name__ == "__main__":
     unittest.main()
-

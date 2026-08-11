@@ -1,9 +1,11 @@
-"""Public API cho dataset utils."""
+"""Public API for dataset utilities."""
 
-from .dataloader import DataLoaderConfig, build_dataloaders, build_datasets
+from .dataloader import DEFAULT_HF_DATASET, DataLoaderConfig, build_dataloaders, build_datasets
 from .dataset import (
+    HuggingFaceImageDataset,
     ImageDataset,
     ImageRecord,
+    StreamingHuggingFaceImageDataset,
     discover_image_records,
     normalize_label,
     split_records,
@@ -11,9 +13,12 @@ from .dataset import (
 from .transforms import build_eval_transform, build_train_transform
 
 __all__ = [
+    "DEFAULT_HF_DATASET",
     "DataLoaderConfig",
+    "HuggingFaceImageDataset",
     "ImageDataset",
     "ImageRecord",
+    "StreamingHuggingFaceImageDataset",
     "build_dataloaders",
     "build_datasets",
     "build_eval_transform",

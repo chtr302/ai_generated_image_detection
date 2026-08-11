@@ -1,14 +1,18 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import sys
+import types
 import unittest
 
 from src.data import (
     DataLoaderConfig,
     build_dataloaders,
+    build_datasets,
     discover_image_records,
     normalize_label,
     split_records,
 )
+from src.data.dataset import HuggingFaceImageDataset, StreamingHuggingFaceImageDataset
 
 
 # Kiem tra dependency tuy chon cho test DataLoader that.
@@ -94,5 +98,79 @@ class DatasetUtilsTest(unittest.TestCase):
         self.assertEqual(metadata["split"], ["val", "val"])
 
 
+    def test_huggingface_image_dataset_reads_defactify_fields(self) -> None:
+        from PIL import Image
+        from torchvision import transforms as T
+
+        rows = [
+            {
+                "Image": Image.new("RGB", (24, 24), color=(120, 80, 40)),
+                "Label_A": 1,
+                "Label_B": 2,
+                "Caption": "synthetic sample",
+            }
+        ]
+        dataset = HuggingFaceImageDataset(
+            rows,
+            transform=T.Compose([T.Resize((16, 16)), T.ToTensor()]),
+            return_metadata=True,
+        )
+        image, label, metadata = dataset[0]
+
+        self.assertEqual(tuple(image.shape), (3, 16, 16))
+        self.assertEqual(label, 1)
+        self.assertEqual(metadata["source"], "2")
+        self.assertEqual(metadata["caption"], "synthetic sample")
+
+    @unittest.skipUnless(
+        _optional_training_dependencies_available(),
+        "Pillow, torch, and torchvision are required for Hugging Face loader tests",
+    )
+    def test_build_datasets_uses_defactify_huggingface_streaming_splits(self) -> None:
+        from PIL import Image
+
+        calls = []
+
+        def fake_load_dataset(dataset_id, *args, **kwargs):
+            calls.append((dataset_id, args, kwargs))
+            return [
+                {
+                    "Image": Image.new("RGB", (24, 24), color=(10, 20, 30)),
+                    "Label_A": 0,
+                    "Label_B": 0,
+                    "Caption": f"{kwargs['split']} sample",
+                }
+            ]
+
+        original_module = sys.modules.get("datasets")
+        sys.modules["datasets"] = types.SimpleNamespace(load_dataset=fake_load_dataset)
+        try:
+            datasets = build_datasets(
+                DataLoaderConfig(
+                    hf_dataset_id="Rajarshi-Roy-research/Defactify_Image_Dataset",
+                    hf_cache_dir="/tmp/hf_cache",
+                    image_size=16,
+                )
+            )
+        finally:
+            if original_module is None:
+                sys.modules.pop("datasets", None)
+            else:
+                sys.modules["datasets"] = original_module
+
+        self.assertEqual(set(datasets), {"train", "val", "test"})
+        self.assertEqual([call[2]["split"] for call in calls], ["train", "validation", "test"])
+        self.assertTrue(all(call[2]["streaming"] for call in calls))
+        self.assertIsInstance(datasets["train"], StreamingHuggingFaceImageDataset)
+        image, label, metadata = next(iter(datasets["val"]))
+        self.assertEqual(tuple(image.shape), (3, 16, 16))
+        self.assertEqual(label, 0)
+        self.assertEqual(metadata["caption"], "validation sample")
+
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+

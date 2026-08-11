@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.forensics.dct_extractor import DCTExtractor
+from src.forensics.fft_extractor import FFTExtractor
 from src.forensics.dwt_extractor import DWTExtractor
 
 
@@ -18,13 +18,13 @@ class MultiDomainPreprocessor(nn.Module):
             dtype=torch.float32,
         )
         self.register_buffer("laplacian", laplacian.view(1, 1, 3, 3))
-        self.dct = DCTExtractor()
+        self.fft = FFTExtractor()
         self.dwt = DWTExtractor()
 
     def forward(self, image: torch.Tensor) -> dict[str, torch.Tensor]:
         return {
             "spatial": self._spatial(image),
-            "frequency": self.dct(image),
+            "frequency": self.fft(image),
             "wavelet": self.dwt(image),
         }
 

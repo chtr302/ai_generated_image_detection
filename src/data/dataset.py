@@ -1,16 +1,23 @@
-"""Dataset cho bài toán phân loại ảnh thật và ảnh AI."""
+"""Dataset helpers for real-vs-AI image classification."""
 
 from __future__ import annotations
 
 import random
 from collections import defaultdict
 from dataclasses import dataclass, replace
+from io import BytesIO
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
+
+try:
+    from torch.utils.data import IterableDataset as _TorchIterableDataset
+except ImportError:  # pragma: no cover - torch is optional until training time
+    class _TorchIterableDataset:  # type: ignore[no-redef]
+        pass
+
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
-# Các tên label khác nhau được quy về 2 lớp: real=0, ai=1.
 LABELS = {
     "0": 0,
     "real": 0,
@@ -30,7 +37,6 @@ LABELS = {
     "diffusion": 1,
 }
 
-# Các tên split hợp lệ được chuẩn hóa về train/val/test.
 SPLITS = {
     "train": "train",
     "training": "train",
@@ -45,7 +51,6 @@ SPLITS = {
 
 @dataclass(frozen=True)
 class ImageRecord:
-    # Một ảnh sau khi được chuẩn hóa thông tin.
     path: Path
     label: int
     split: str | None = None
@@ -53,38 +58,34 @@ class ImageRecord:
 
 
 def normalize_label(label: str | int) -> int:
-    """Đưa label về dạng số: real=0, ai=1."""
+    """Normalize labels to binary ids: real=0, AI-generated=1."""
 
-    # Label số chỉ được phép là 0 hoặc 1.
     if isinstance(label, int):
         if label in (0, 1):
             return label
-        raise ValueError(f"Label số không hợp lệ: {label}")
+        raise ValueError(f"Invalid numeric label: {label}")
 
-    # Label chữ được đưa về dạng thống nhất trước khi tra bảng LABELS.
     key = label.strip().lower().replace("_", "-")
     if key not in LABELS:
-        raise ValueError(f"Label không hợp lệ: {label}. Dùng real/0 hoặc ai/1.")
+        raise ValueError(f"Invalid label: {label}. Use real/0 or ai/1.")
     return LABELS[key]
 
 
 def discover_image_records(root: str | Path) -> list[ImageRecord]:
-    """Quét folder dataset và suy ra label/split từ tên thư mục."""
+    """Scan a local folder and infer label/split from folder names."""
 
     root = Path(root).expanduser().resolve()
     if not root.exists():
-        raise FileNotFoundError(f"Không tìm thấy dataset root: {root}")
+        raise FileNotFoundError(f"Dataset root not found: {root}")
 
     records: list[ImageRecord] = []
     skipped: list[Path] = []
 
     for image_path in sorted(root.rglob("*")):
-        # Chỉ xử lý các file ảnh có extension được hỗ trợ.
         if not _is_image(image_path):
             continue
 
         folders = image_path.relative_to(root).parts[:-1]
-        # Label được suy ra từ tên folder cha như real, ai, generated, fake.
         label = _find_label(folders)
         if label is None:
             skipped.append(image_path)
@@ -94,9 +95,7 @@ def discover_image_records(root: str | Path) -> list[ImageRecord]:
             ImageRecord(
                 path=image_path,
                 label=label,
-                # Nếu folder có train/val/test thì giữ lại, nếu không thì để None.
                 split=_find_split(folders),
-                # Source là folder mô tả nguồn dữ liệu nếu có, ví dụ sdxl/midjourney.
                 source=_find_source(folders),
             )
         )
@@ -104,11 +103,11 @@ def discover_image_records(root: str | Path) -> list[ImageRecord]:
     if skipped:
         examples = ", ".join(str(path) for path in skipped[:3])
         raise ValueError(
-            "Không suy ra được label từ một số ảnh. "
-            f"Hãy đặt ảnh trong folder real/ai/generated/fake. Ví dụ: {examples}"
+            "Cannot infer labels for some images. Put images under real/ai/generated/fake folders. "
+            f"Examples: {examples}"
         )
     if not records:
-        raise ValueError(f"Không tìm thấy ảnh hợp lệ trong: {root}")
+        raise ValueError(f"No supported image files found in: {root}")
 
     return records
 
@@ -120,11 +119,11 @@ def split_records(
     test_ratio: float = 0.1,
     seed: int = 42,
 ) -> list[ImageRecord]:
-    """Chia dataset thành train/val/test theo từng label."""
+    """Split records into train/val/test while keeping label balance."""
 
     total = train_ratio + val_ratio + test_ratio
     if total <= 0:
-        raise ValueError("Tổng tỷ lệ split phải lớn hơn 0")
+        raise ValueError("Split ratios must sum to a positive value")
 
     train_ratio = train_ratio / total
     val_ratio = val_ratio / total
@@ -132,7 +131,6 @@ def split_records(
     rng = random.Random(seed)
     records_by_label: dict[int, list[ImageRecord]] = defaultdict(list)
     for record in records:
-        # Chia riêng theo label để train/val/test không lệch lớp quá nhiều.
         records_by_label[record.label].append(record)
 
     result: list[ImageRecord] = []
@@ -144,7 +142,6 @@ def split_records(
         val_end = train_end + round(len(group) * val_ratio)
 
         for index, record in enumerate(group):
-            # Gán split dựa trên vị trí sau khi shuffle.
             if index < train_end:
                 split = "train"
             elif index < val_end:
@@ -157,7 +154,7 @@ def split_records(
 
 
 class ImageDataset:
-    """Dataset trả về image, label và metadata cho PyTorch."""
+    """Map-style PyTorch dataset for local image files."""
 
     def __init__(
         self,
@@ -166,7 +163,7 @@ class ImageDataset:
         return_metadata: bool = True,
     ) -> None:
         if not records:
-            raise ValueError("Dataset cần ít nhất một ảnh")
+            raise ValueError("Dataset needs at least one image")
         self.records = list(records)
         self.transform = transform
         self.return_metadata = return_metadata
@@ -178,27 +175,169 @@ class ImageDataset:
         try:
             from PIL import Image
         except ImportError as exc:
-            raise ImportError("Cài Pillow để đọc ảnh: pip install pillow") from exc
+            raise ImportError("Install Pillow to read images: pip install pillow") from exc
 
-        # Ảnh chỉ được mở khi DataLoader cần lấy item.
         record = self.records[index]
         with Image.open(record.path) as image:
             image = image.convert("RGB")
 
-        # Transform biến ảnh PIL thành tensor đã chuẩn hóa.
         if self.transform:
             image = self.transform(image)
 
         if not self.return_metadata:
             return image, record.label
 
-        # Metadata giúp truy vết ảnh khi debug hoặc đánh giá lỗi.
         metadata = {
             "path": str(record.path),
             "split": record.split or "",
             "source": record.source or "",
         }
         return image, record.label, metadata
+
+
+class HuggingFaceImageDataset:
+    """Map-style adapter for Defactify Hugging Face rows."""
+
+    def __init__(
+        self,
+        dataset,
+        image_column: str = "Image",
+        label_column: str = "Label_A",
+        caption_column: str = "Caption",
+        source_label_column: str = "Label_B",
+        transform: Callable | None = None,
+        return_metadata: bool = True,
+    ) -> None:
+        if len(dataset) == 0:
+            raise ValueError("Hugging Face dataset split needs at least one image")
+        self.dataset = dataset
+        self.image_column = image_column
+        self.label_column = label_column
+        self.caption_column = caption_column
+        self.source_label_column = source_label_column
+        self.transform = transform
+        self.return_metadata = return_metadata
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    def __getitem__(self, index: int):
+        return _format_hf_row(
+            row=self.dataset[index],
+            index=index,
+            image_column=self.image_column,
+            label_column=self.label_column,
+            caption_column=self.caption_column,
+            source_label_column=self.source_label_column,
+            transform=self.transform,
+            return_metadata=self.return_metadata,
+        )
+
+
+class StreamingHuggingFaceImageDataset(_TorchIterableDataset):
+    """Streaming adapter for Defactify rows without downloading the full dataset."""
+
+    def __init__(
+        self,
+        dataset,
+        image_column: str = "Image",
+        label_column: str = "Label_A",
+        caption_column: str = "Caption",
+        source_label_column: str = "Label_B",
+        transform: Callable | None = None,
+        return_metadata: bool = True,
+    ) -> None:
+        super().__init__()
+        self.dataset = dataset
+        self.image_column = image_column
+        self.label_column = label_column
+        self.caption_column = caption_column
+        self.source_label_column = source_label_column
+        self.transform = transform
+        self.return_metadata = return_metadata
+
+    def set_epoch(self, epoch: int) -> None:
+        if hasattr(self.dataset, "set_epoch"):
+            self.dataset.set_epoch(epoch)
+
+    def __iter__(self) -> Iterator:
+        dataset = self.dataset
+        worker_info = _get_torch_worker_info()
+        shard_applied = False
+        if worker_info is not None and hasattr(dataset, "shard"):
+            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
+            shard_applied = True
+
+        output_index = 0
+        for input_index, row in enumerate(dataset):
+            if worker_info is not None and not shard_applied and input_index % worker_info.num_workers != worker_info.id:
+                continue
+            yield _format_hf_row(
+                row=row,
+                index=output_index,
+                image_column=self.image_column,
+                label_column=self.label_column,
+                caption_column=self.caption_column,
+                source_label_column=self.source_label_column,
+                transform=self.transform,
+                return_metadata=self.return_metadata,
+            )
+            output_index += 1
+
+def _to_rgb_pil(value: Any):
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise ImportError("Install Pillow to read images: pip install pillow") from exc
+
+    if isinstance(value, Image.Image):
+        return value.convert("RGB")
+    if isinstance(value, dict):
+        if value.get("bytes") is not None:
+            return Image.open(BytesIO(value["bytes"])).convert("RGB")
+        if value.get("path") is not None:
+            return Image.open(value["path"]).convert("RGB")
+    if isinstance(value, (str, Path)):
+        return Image.open(value).convert("RGB")
+    if hasattr(value, "__array__"):
+        return Image.fromarray(value).convert("RGB")
+    raise TypeError(f"Cannot read image value from Hugging Face row: {type(value)!r}")
+
+
+def _format_hf_row(
+    row: dict[str, Any],
+    index: int,
+    image_column: str,
+    label_column: str,
+    caption_column: str,
+    source_label_column: str,
+    transform: Callable | None,
+    return_metadata: bool,
+):
+    image = _to_rgb_pil(row[image_column])
+    label = normalize_label(int(row[label_column]))
+
+    if transform:
+        image = transform(image)
+
+    if not return_metadata:
+        return image, label
+
+    metadata = {
+        "path": str(row.get("image_id", index)),
+        "split": str(row.get("split", "")),
+        "source": str(row.get(source_label_column, "")),
+        "caption": str(row.get(caption_column, "")),
+    }
+    return image, label, metadata
+
+
+def _get_torch_worker_info():
+    try:
+        from torch.utils.data import get_worker_info
+    except ImportError:
+        return None
+    return get_worker_info()
 
 
 def _is_image(path: Path) -> bool:
@@ -237,4 +376,6 @@ def _normalize_split(split: str | None, allow_unknown: bool = False) -> str | No
         return SPLITS[key]
     if allow_unknown:
         return None
-    raise ValueError(f"Split không hợp lệ: {split}. Dùng train/val/test.")
+    raise ValueError(f"Invalid split: {split}. Use train/val/test.")
+
+
