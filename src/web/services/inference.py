@@ -70,6 +70,10 @@ def safe_env_int(name: str, default: int) -> int:
     raw_value = os.getenv(name, "").strip()
     if not raw_value:
         return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        return default
 
 
 def safe_env_float(name: str, default: float) -> float:
@@ -78,10 +82,6 @@ def safe_env_float(name: str, default: float) -> float:
         return default
     try:
         return float(raw_value)
-    except ValueError:
-        return default
-    try:
-        return int(raw_value)
     except ValueError:
         return default
 
