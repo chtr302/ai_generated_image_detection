@@ -1,5 +1,8 @@
+from src.web.app import app
+
+
 def main():
-    print("Hello from ai-generated-image-recognition-system!")
+    app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
