@@ -13,6 +13,11 @@ wheels/
 # Folder
 dataset
 docs
+external
+results
+benchmark/data
+benchmark/external
+benchmark/results
 
 pyproject.toml
 uv.lock

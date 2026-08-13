@@ -1,54 +1,68 @@
-# Explainable AI-Generated Image Recognition System
-He thong nhan dien va giai thich hinh anh do AI tao ra su dung mo hinh lai Spatial-Frequency CNN-ViT ket hop voi co che giai thich Concept Bottleneck Models (CBM).
+# AI Generated Image Detection
 
----
+Web app Flask chay local de phat hien anh that hay anh do AI tao ra. App hien tai tich hop truc tiep 2 model ONNX trong thu muc `model/`:
 
-## 1. Project Directory Structure
+- `hybrid_xrayon_physical.onnx`
+- `xrayon_rgb_only.onnx`
+
+Web app hien thi output cua tung model va chon ket qua theo model co confidence lon nhat.
+
+Model duoc chay trong worker process rieng. Khi bat model, app chi mo khoa phan tich; model chua load vao RAM. Khi co request phan tich dau tien, worker moi duoc tao va load 2 ONNX model. Khi tat model, worker process bi dung de RAM model duoc tra lai cho he dieu hanh.
+
+## Cau truc chinh
 
 ```text
-ai_generated_image_recognition_system/
-├── data/                        # Quan ly du lieu va DataLoader
-│   ├── download_scripts/        # Scripts tai dataset (GenImage, CIFAKE)
-│   ├── dataloader.py            # PyTorch Dataset
-│   └── augmentations.py         # Kyt thuat tang cuong anh (JPEG, Blur)
-├── forensics/                   # Bo trich xuat dau vet vat ly (FFT, DWT, Demosaicing)
-│   ├── fft_extractor.py
-│   ├── dwt_extractor.py
-│   ├── demosaicing_extractor.py
-│   └── chromatic_aberration.py
-├── models/                      # Cau truc va huan luyen mo hinh
-│   ├── architectures/           # Hybrid CNN-ViT backbone
-│   ├── train.py                 # Script huan luyen
-│   ├── evaluate.py              # Đanh gia roc, f1
-│   └── loss.py                  # Joint Loss Function
-├── xai/                         # Bo giai thich quyet dinh
-│   ├── concept_bottleneck.py    # Concept Bottleneck Layer
-│   ├── gradcam.py               # Grad-CAM Visualizations
-│   └── attribution.py           # Integrated Gradients
-├── web/                         # Giao dien chay offline cục bộ
-│   ├── app.py                   # Streamlit Frontend
-│   └── api/                     # FastAPI Backend
-├── tests/                       # Unit tests
-├── docs/                        # Tai lieu nghien cuu
-└── requirements.txt
+src/
+|-- web/
+|   |-- app.py
+|   |-- services/
+|   |   |-- inference.py
+|   |-- templates/
+|   |   |-- index.html
+|   |-- static/
+|       |-- css/styles.css
+|       |-- js/app.js
+|-- model/
+|-- data/
+|-- forensics/
+|-- xai/
+benchmark/
+model/
+|-- hybrid_xrayon_physical.onnx
+|-- xrayon_rgb_only.onnx
 ```
 
----
+## Chay web app
 
-## 2. Team Roles & Pipeline Ownership
+```powershell
+python -m src.web.app
+```
 
-*   **Forensics & XAI Lead:** Phụ trách xây dựng các module trích xuất đặc trưng vật lý quang học (`forensics/`) và tích hợp cơ chế giải thích (`xai/` - Concept Bottleneck, Grad-CAM, Integrated Gradients).
-*   **ML Engineer:** Phụ trách chuẩn bị dữ liệu (`data/`), thiết kế backbone hybrid và thực hiện huấn luyện, tối ưu hóa mô hình (`models/`).
-*   **System Engineer:** Phụ trách xây dựng giao diện ứng dụng web local (`web/`), tích hợp mô hình qua API và thực hiện kiểm thử hệ thống.
+Mo trinh duyet:
 
----
+```text
+http://127.0.0.1:5000
+```
 
-## 3. Project Roadmap (7 Weeks)
+## API web
 
-*   **Tuan 1:** Thống nhất sơ đồ luồng dữ liệu và thiết lập môi trường phát triển chung.
-*   **Tuan 2:** Hoàn thiện module FFT, DWT và xây dựng DataLoader chuẩn hóa.
-*   **Tuan 3:** Hoàn thiện module Demosaicing, Chromatic Aberration và xây dựng cấu trúc mô hình hybrid CNN-ViT.
-*   **Tuan 4:** Bàn giao các Forensics Layers để nhúng vào mô hình. Huấn luyện baseline model.
-*   **Tuan 5:** Huấn luyện nâng cao với Joint Loss. Xây dựng lớp Concept Bottleneck và tích hợp Grad-CAM.
-*   **Tuan 6:** Kiểm thử mô hình trên dữ liệu unseen (Flux, Midjourney v6). Hoàn thiện Web App cục bộ.
-*   **Tuan 7:** Đóng gói mã nguồn, viết báo cáo tổng kết và chuẩn bị slide thuyết trình.
+- `GET /`: giao dien upload anh.
+- `GET /health`: kiem tra service.
+- `GET /api/model-state`: trang thai bat/tat model.
+- `GET /api/model-detail`: thong tin 2 model ONNX.
+- `POST /api/load-url`: tai preview anh tu URL.
+- `POST /api/analyze`: phan tich mot anh upload hoac URL.
+
+App khong con dung mock model, anh mau, sample route, hoac batch demo trong web app.
+
+## Bien moi truong tuy chon
+
+- `AIGID_MODEL_DIR`: thu muc chua 2 file ONNX, mac dinh la `model/`.
+- `AIGID_AI_CLASS_INDEX`: index lop AI trong output model, mac dinh `1`.
+- `AIGID_MODEL_ENABLED`: dat `0` de tat chuc nang phan tich khi khoi dong.
+- `AIGID_MODEL_CONTROL_KEY`: key bao ve API bat/tat model.
+- `AIGID_WORKER_TIMEOUT_SECONDS`: thoi gian toi da cho mot lan phan tich, mac dinh `120`.
+
+## Benchmark
+
+Thu muc `benchmark/` duoc giu lai rieng de tiep tuc sua va danh gia sau.
