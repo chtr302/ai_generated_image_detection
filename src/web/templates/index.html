@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta id="themeColor" name="theme-color" content="#171717">
+    <title>AI Generated Image Detection</title>
+    <script>
+      (() => {
+        const storedTheme = localStorage.getItem("ai_image_detection_theme");
+        const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+        document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
+      })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  </head>
+  <body>
+    <div class="app-shell">
+      <section class="app-window" aria-label="AI Generated Image Detection">
+        <header class="app-header">
+          <div class="brand-group">
+            <div class="window-controls" aria-hidden="true">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <span class="terminal-path">~/ai-image-detection</span>
+          </div>
+          <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode" aria-pressed="false" title="Switch theme">
+            <span class="theme-toggle-track" aria-hidden="true">
+              <span class="theme-toggle-thumb"></span>
+            </span>
+            <span id="themeToggleText">Dark</span>
+          </button>
+        </header>
+
+        <main class="app-body">
+          <section class="hero">
+            <p class="eyebrow">AI Generated Image Detection</p>
+            <h1>Kiem tra anh that hay anh do AI tao</h1>
+            <p>Upload anh hoac nhap URL de xem nhan du doan, diem AI va thong so xu ly cua model.</p>
+          </section>
+
+          <section class="main-grid">
+            <aside class="panel input-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Anh dau vao</h2>
+                  <p>Ho tro jpg, jpeg, png, webp. Toi da 10 MB.</p>
+                </div>
+              </div>
+
+              <form id="analyzeForm" class="analyze-form" novalidate>
+                <label id="dropZone" class="drop-zone" for="imageInput">
+                  <input id="imageInput" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+                  <span class="drop-title">Bam de chon anh</span>
+                  <span class="drop-copy">hoac keo anh vao khung nay.</span>
+                  <span class="drop-action">Chon anh tu may</span>
+                </label>
+
+                <div class="field-group">
+                  <label for="urlInput">Hoac nhap URL anh</label>
+                  <div class="url-load-row">
+                    <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com/image.png" autocomplete="off">
+                    <button id="loadUrlButton" class="btn btn-secondary" type="button">Load URL</button>
+                  </div>
+                </div>
+
+                <div id="selectedInput" class="selected-input">Chua chon anh.</div>
+
+                <div class="action-row">
+                  <button id="analyzeButton" class="btn btn-primary" type="submit">Phan tich</button>
+                </div>
+              </form>
+
+              <div id="message" class="message" role="status" aria-live="polite"></div>
+            </aside>
+
+            <section class="panel result-panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Ket qua</h2>
+                  <p>Du doan cuoi cung va anh dang kiem tra.</p>
+                </div>
+                <button id="modelDetailButton" class="btn btn-secondary btn-small" type="button">Thong so model</button>
+              </div>
+
+              <div id="previewStage" class="preview-stage">
+                <div class="empty-visual">
+                  <strong>Chua co anh</strong>
+                  <span>Vui long chon anh hoac nhap URL.</span>
+                </div>
+              </div>
+
+              <div id="summaryCards" class="summary-grid">
+                <article class="summary-card">
+                  <span>Nhan</span>
+                  <strong>-</strong>
+                  <small>Dang cho anh</small>
+                </article>
+                <article class="summary-card">
+                  <span>Diem AI</span>
+                  <strong>-</strong>
+                  <small>Xac suat anh AI</small>
+                </article>
+                <article class="summary-card">
+                  <span>Xu ly</span>
+                  <strong>-</strong>
+                  <small>Thoi gian xu ly</small>
+                </article>
+              </div>
+            </section>
+          </section>
+        </main>
+      </section>
+    </div>
+
+    <div id="modelDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modelDetailTitle" hidden>
+      <div class="modal-backdrop" data-modal-close></div>
+      <section class="modal-panel">
+        <header class="modal-header">
+          <div>
+            <h2 id="modelDetailTitle">Thong so model</h2>
+          </div>
+          <button id="modelDetailClose" class="modal-close" type="button" aria-label="Dong popup">x</button>
+        </header>
+        <div id="modelDetailContent" class="model-detail-content">
+          <p>Dang tai thong so model...</p>
+        </div>
+      </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  </body>
+</html>
