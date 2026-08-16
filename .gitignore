@@ -12,7 +12,8 @@ wheels/
 
 # Folder
 dataset
-docs
+docs/*
+!docs/*.md
 external
 results
 benchmark/data
