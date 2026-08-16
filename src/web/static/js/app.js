@@ -1,10 +1,13 @@
 const IMAGE_LIMIT_BYTES = 10 * 1024 * 1024;
 const SUPPORTED_IMAGES = new Set(["jpg", "jpeg", "png", "webp"]);
 const THEME_KEY = "ai_image_detection_theme";
+const STATIC_VERSION = "20260816-mobile-font-detail";
 
 const state = {
   selectedFile: null,
   selectedUrl: "",
+  urlCheckTimer: null,
+  urlCheckSeq: 0,
   modelEnabled: true,
   lastRenderedModelEnabled: null,
   lastResult: null,
@@ -28,6 +31,16 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function ensureFreshStylesheet() {
+  if (document.querySelector(`link[data-aigid-version="${STATIC_VERSION}"]`)) return;
+
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = `/static/css/styles.css?v=${STATIC_VERSION}`;
+  link.dataset.aigidVersion = STATIC_VERSION;
+  document.head.appendChild(link);
+}
+
 function extensionOf(name) {
   const clean = String(name || "").split("?")[0].split("#")[0];
   return clean.includes(".") ? clean.split(".").pop().toLowerCase() : "";
@@ -37,7 +50,7 @@ async function apiPostForm(url, formData) {
   const response = await fetch(url, { method: "POST", body: formData });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    throw new Error(data.error || "Yêu cầu không thực hiện được. Vui lòng thử lại.");
   }
   return data;
 }
@@ -46,7 +59,7 @@ async function apiGetJson(url) {
   const response = await fetch(url);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    throw new Error(data.error || "Yêu cầu không thực hiện được. Vui lòng thử lại.");
   }
   return data;
 }
@@ -73,8 +86,8 @@ function setTheme(theme, shouldSave = false) {
   if (toggle && toggleText) {
     const isLight = resolvedTheme === "light";
     toggle.setAttribute("aria-pressed", String(isLight));
-    toggle.setAttribute("aria-label", isLight ? "Switch to dark mode" : "Switch to light mode");
-    toggleText.textContent = isLight ? "Light" : "Dark";
+    toggle.setAttribute("aria-label", isLight ? "Chuyển sang giao diện tối" : "Chuyển sang giao diện sáng");
+    toggleText.textContent = isLight ? "Sáng" : "Tối";
   }
 
   if (shouldSave) {
@@ -100,15 +113,20 @@ function initTheme() {
 function setMessage(text, kind = "") {
   const el = $("message");
   el.textContent = text || "";
+  el.title = text || "";
   el.className = `message ${kind}`.trim();
 }
 
+function isAiLabel(label) {
+  return ["ai-generated", "ai", "fake", "synthetic"].includes(String(label || "").trim().toLowerCase());
+}
+
 function labelText(label) {
-  return label === "AI-generated" ? "Anh AI" : "Anh that";
+  return isAiLabel(label) ? "Ảnh AI" : "Ảnh thật";
 }
 
 function resultClass(label) {
-  return label === "AI-generated" ? "result-ai" : "result-real";
+  return isAiLabel(label) ? "result-ai" : "result-real";
 }
 
 function percent(value) {
@@ -118,6 +136,7 @@ function percent(value) {
 function setBusy(active, title = "", copy = "") {
   state.busy = active;
   document.body.classList.toggle("is-busy", active);
+  syncControlState();
 
   const stage = $("previewStage");
   if (!stage) return;
@@ -131,8 +150,8 @@ function setBusy(active, title = "", copy = "") {
   overlay.setAttribute("aria-live", "polite");
   overlay.innerHTML = `
     <span class="loader-ring" aria-hidden="true"></span>
-    <strong>${escapeHtml(title || "Dang xu ly")}</strong>
-    <small>${escapeHtml(copy || "Vui long cho trong giay lat.")}</small>
+    <strong>${escapeHtml(title || "Đang xử lý")}</strong>
+    <small>${escapeHtml(copy || "Vui lòng chờ trong giây lát.")}</small>
   `;
   stage.appendChild(overlay);
 }
@@ -140,8 +159,10 @@ function setBusy(active, title = "", copy = "") {
 function setButtonBusy(button, active, text = "") {
   if (!button) return;
   if (active) {
-    button.dataset.idleText = button.textContent;
-    button.textContent = text || "Dang xu ly...";
+    if (!button.dataset.idleText) {
+      button.dataset.idleText = button.textContent;
+    }
+    button.textContent = text || "Đang xử lý...";
   } else {
     button.textContent = button.dataset.idleText || button.textContent;
     delete button.dataset.idleText;
@@ -150,62 +171,212 @@ function setButtonBusy(button, active, text = "") {
 
 function updateSelectedInput(text) {
   const selectedInput = $("selectedInput");
-  selectedInput.textContent = text || "Chua chon anh.";
+  selectedInput.textContent = text || "Chưa chọn ảnh.";
   selectedInput.title = selectedInput.textContent;
 }
 
-function setModelControlsDisabled(disabled) {
-  ["imageInput", "urlInput", "loadUrlButton", "analyzeButton"].forEach((id) => {
+function setText(selector, text) {
+  const el = document.querySelector(selector);
+  if (el) el.textContent = text;
+}
+
+function localizeStaticText() {
+  setText(".hero h1", "Nhận diện ảnh thật và ảnh AI");
+  setText(
+    ".hero > p:not(.eyebrow)",
+    "Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model."
+  );
+
+  const heroItems = document.querySelectorAll(".hero .hero-guide li");
+  [
+    "Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.",
+    "Xác nhận ảnh xem trước, sau đó bấm Phân tích.",
+    "Xem kết luận, điểm AI và chi tiết xử lý.",
+  ].forEach((text, index) => {
+    if (heroItems[index]) heroItems[index].textContent = text;
+  });
+
+  setText(".result-panel .panel-header h2", "Kết quả");
+  setText(".result-panel .panel-header p", "Dự đoán cuối cùng và thông số xử lý.");
+  setText("#modelDetailButton", "Chi tiết kết quả");
+  setText(".input-panel .panel-header h2", "Ảnh đầu vào");
+  setText(".input-panel .panel-header p", "Hỗ trợ jpg, jpeg, png, webp. Tối đa 10 MB.");
+  setText(".drop-title", "Bấm để chọn ảnh");
+  setText(".drop-copy", "hoặc kéo ảnh vào khung này.");
+  setText(".drop-action", "Chọn ảnh từ máy");
+  setText(".field-group label", "Hoặc nhập URL ảnh");
+  setText("#analyzeButton", "Phân tích");
+
+  const selectedInput = $("selectedInput");
+  if (selectedInput && /Chua|Chưa|chon|chọn|anh|ảnh/i.test(selectedInput.textContent)) {
+    updateSelectedInput("Chưa chọn ảnh.");
+  }
+
+  const summaryCards = document.querySelectorAll("#summaryCards .summary-card");
+  const summaryText = [
+    ["Nhãn", "-", "Đang chờ ảnh"],
+    ["Điểm AI", "-", "Xác suất ảnh AI"],
+    ["Xử lý", "-", "Thời gian xử lý"],
+  ];
+  summaryCards.forEach((card, index) => {
+    const [label, value, copy] = summaryText[index] || [];
+    if (!label) return;
+    const span = card.querySelector("span");
+    const strong = card.querySelector("strong");
+    const small = card.querySelector("small");
+    if (span) span.textContent = label;
+    if (strong && strong.textContent.trim() === "-") strong.textContent = value;
+    if (small) small.textContent = copy;
+  });
+
+  setText("#previewPanelTitle", "Ảnh đã tải");
+  setText("#previewPanelSubtitle", "Chưa có ảnh để xem trước.");
+  const clearButton = $("clearImageButton");
+  if (clearButton) {
+    clearButton.setAttribute("aria-label", "Loại ảnh đang tải");
+    clearButton.title = "Loại ảnh đang tải";
+  }
+
+  const emptyVisual = document.querySelector("#previewStage .empty-visual");
+  if (emptyVisual) {
+    setText("#previewStage .empty-visual strong", "Chưa có ảnh");
+    setText("#previewStage .empty-visual span", "Vui lòng chọn ảnh hoặc nhập URL.");
+  }
+
+  setText("#modelDetailTitle", "Chi tiết kết quả");
+  setText("#modelDetailContent p", "Đang tải chi tiết kết quả...");
+  const modelClose = $("modelDetailClose");
+  if (modelClose) modelClose.setAttribute("aria-label", "Đóng popup");
+}
+
+function setPreviewPanelState(title = "Ảnh đã tải", subtitle = "Chưa có ảnh để xem trước.", canClear = false) {
+  const titleEl = $("previewPanelTitle");
+  const subtitleEl = $("previewPanelSubtitle");
+  const clearButton = $("clearImageButton");
+
+  if (titleEl) titleEl.textContent = title;
+  if (subtitleEl) {
+    subtitleEl.textContent = subtitle;
+    subtitleEl.title = subtitle;
+  }
+  if (clearButton) {
+    clearButton.hidden = !canClear;
+    clearButton.disabled = state.busy || !canClear;
+  }
+}
+
+function analyzeUnavailableReason() {
+  if (!state.modelEnabled) return "Model đang tắt nên chưa thể phân tích.";
+  if (state.busy) return "";
+
+  if (state.selectedFile) {
+    const validation = validateImageFile(state.selectedFile);
+    return validation.ok ? "" : validation.error;
+  }
+
+  const urlValue = $("urlInput")?.value.trim() || "";
+  if (!urlValue) return "Chưa có ảnh để phân tích. Hãy chọn ảnh hoặc nhập URL ảnh.";
+
+  const validation = validateImageUrl(urlValue);
+  if (!validation.ok) return validation.error;
+  if (state.selectedUrl !== urlValue) return "URL chưa được kiểm tra xong. Vui lòng chờ trong giây lát.";
+  return "";
+}
+
+function syncControlState() {
+  const inputLocked = state.busy || !state.modelEnabled;
+  const analyzeReason = analyzeUnavailableReason();
+  const disabledById = {
+    imageInput: inputLocked,
+    urlInput: inputLocked,
+    analyzeButton: inputLocked,
+    modelDetailButton: state.busy,
+    modelDetailClose: state.busy,
+    themeToggle: state.busy,
+    clearImageButton: state.busy || $("clearImageButton")?.hidden,
+  };
+
+  Object.entries(disabledById).forEach(([id, disabled]) => {
     const el = $(id);
     if (el) el.disabled = disabled;
   });
 
-  const dropZone = $("dropZone");
-  if (dropZone) {
-    dropZone.classList.toggle("is-disabled", disabled);
+  const analyzeButton = $("analyzeButton");
+  if (analyzeButton) {
+    analyzeButton.classList.toggle("is-soft-locked", Boolean(analyzeReason));
+    analyzeButton.setAttribute("aria-disabled", String(Boolean(analyzeReason || inputLocked)));
+    if (analyzeReason) {
+      analyzeButton.setAttribute("aria-describedby", "analyzeTooltip");
+    } else {
+      analyzeButton.removeAttribute("aria-describedby");
+    }
   }
 
-  document.body.classList.toggle("model-disabled", disabled);
+  const actionRow = document.querySelector(".action-row");
+  const analyzeTooltip = $("analyzeTooltip");
+  if (actionRow && analyzeTooltip) {
+    actionRow.classList.toggle("has-warning", Boolean(analyzeReason));
+    analyzeTooltip.hidden = !analyzeReason;
+    analyzeTooltip.textContent = analyzeReason;
+  }
+
+  const dropZone = $("dropZone");
+  if (dropZone) {
+    dropZone.classList.toggle("is-disabled", inputLocked);
+  }
+
+  document.body.classList.toggle("model-disabled", !state.modelEnabled);
 
   const inputPanel = document.querySelector(".input-panel");
-  if (inputPanel) inputPanel.setAttribute("aria-disabled", String(disabled));
+  if (inputPanel) inputPanel.setAttribute("aria-disabled", String(inputLocked));
+}
+
+function clearUrlCheckTimer() {
+  if (state.urlCheckTimer) {
+    window.clearTimeout(state.urlCheckTimer);
+    state.urlCheckTimer = null;
+  }
 }
 
 function resetAnalysisUi(disabled = false) {
   state.selectedFile = null;
   state.selectedUrl = "";
   state.lastResult = null;
+  clearUrlCheckTimer();
+  state.urlCheckSeq += 1;
 
   const imageInput = $("imageInput");
   const urlInput = $("urlInput");
   if (imageInput) imageInput.value = "";
   if (urlInput) urlInput.value = "";
 
-  updateSelectedInput(disabled ? "Model OFF - input bi khoa." : "Chua chon anh.");
+  updateSelectedInput(disabled ? "Model tắt - đầu vào bị khóa." : "Chưa chọn ảnh.");
 
-  $("previewStage").className = "preview-stage";
-  $("previewStage").innerHTML = `
-    <div class="empty-visual">
-      <strong>${disabled ? "MODEL OFF" : "Chua co anh"}</strong>
-      <span>${disabled ? "Chuc nang load anh va phan tich hien dang tam khoa." : "Vui long chon anh hoac nhap URL."}</span>
-    </div>
-  `;
+  renderEmptyPreview(
+    disabled ? "MODEL TẮT" : "Chưa có ảnh",
+    disabled ? "Chức năng tải ảnh và phân tích hiện đang tạm khóa." : "Vui lòng chọn ảnh hoặc nhập URL."
+  );
+  setPreviewPanelState(
+    disabled ? "Model tắt" : "Ảnh đã tải",
+    disabled ? "Chức năng xem trước ảnh hiện đang tạm khóa." : "Chưa có ảnh để xem trước.",
+    false
+  );
 
   $("summaryCards").innerHTML = `
     <article class="summary-card">
-      <span>Nhan</span>
+      <span>Nhãn</span>
       <strong>-</strong>
-      <small>${disabled ? "Model OFF" : "Dang cho anh"}</small>
+      <small>${disabled ? "Model tắt" : "Đang chờ ảnh"}</small>
     </article>
     <article class="summary-card">
-      <span>Diem AI</span>
+      <span>Điểm AI</span>
       <strong>-</strong>
-      <small>${disabled ? "Da khoa" : "Xac suat anh AI"}</small>
+      <small>${disabled ? "Đã khóa" : "Xác suất ảnh AI"}</small>
     </article>
     <article class="summary-card">
-      <span>Xu ly</span>
+      <span>Xử lý</span>
       <strong>-</strong>
-      <small>${disabled ? "Khong kha dung" : "Thoi gian xu ly"}</small>
+      <small>${disabled ? "Không khả dụng" : "Thời gian xử lý"}</small>
     </article>
   `;
 }
@@ -215,11 +386,11 @@ function renderModelState(modelState) {
   const previous = state.lastRenderedModelEnabled;
   state.modelEnabled = enabled;
   state.lastRenderedModelEnabled = enabled;
-  setModelControlsDisabled(!enabled);
+  syncControlState();
 
   if (!enabled && previous !== false) {
     resetAnalysisUi(true);
-    setMessage("Model dang tat. Chuc nang load anh va phan tich hien dang tam khoa.", "warning");
+    setMessage("Model đang tắt. Chức năng tải ảnh và phân tích hiện đang tạm khóa.", "warning");
   } else if (enabled && previous === false) {
     resetAnalysisUi(false);
     setMessage("");
@@ -232,36 +403,59 @@ async function refreshModelState() {
 }
 
 function validateImageFile(file) {
-  if (!file) return { ok: false, error: "Vui long chon anh truoc." };
+  if (!file) return { ok: false, error: "Vui lòng chọn ảnh trước." };
   const ext = extensionOf(file.name);
   if (!SUPPORTED_IMAGES.has(ext)) {
-    return { ok: false, error: "Dinh dang khong ho tro. Chi nhan jpg, jpeg, png, webp." };
+    return { ok: false, error: "Định dạng không hỗ trợ. Chỉ nhận jpg, jpeg, png, webp." };
   }
   if (file.size > IMAGE_LIMIT_BYTES) {
-    return { ok: false, error: "Anh qua lon. Gioi han la 10 MB." };
+    return { ok: false, error: "Ảnh quá lớn. Giới hạn là 10 MB." };
   }
   return { ok: true };
 }
 
 function validateImageUrl(url) {
-  if (!url) return { ok: false, error: "Vui long chon anh hoac nhap URL anh." };
+  if (!url) return { ok: false, error: "Vui lòng chọn ảnh hoặc nhập URL ảnh." };
   let parsed;
   try {
     parsed = new URL(url);
   } catch {
-    return { ok: false, error: "URL khong hop le." };
+    return { ok: false, error: "URL không hợp lệ. Vui lòng nhập đầy đủ dạng https://ten-mien/anh.jpg." };
   }
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    return { ok: false, error: "URL phai dung http hoac https." };
+    return { ok: false, error: "URL phải dùng http hoặc https." };
+  }
+  if (!parsed.host) {
+    return { ok: false, error: "URL thiếu tên miền hoặc host." };
   }
   return { ok: true };
 }
 
+function friendlyUrlError(message) {
+  const text = String(message || "").trim();
+  if (!text) return "Không kiểm tra được URL. Vui lòng thử lại.";
+  if (/request failed/i.test(text) || /\b\d{3}\b/.test(text)) {
+    return "Không tải được ảnh từ URL này. Vui lòng kiểm tra lại đường dẫn ảnh.";
+  }
+  return text;
+}
+
+function renderEmptyPreview(title = "Chưa có ảnh", copy = "Vui lòng chọn ảnh hoặc nhập URL.") {
+  const stage = $("previewStage");
+  stage.className = "preview-stage";
+  stage.innerHTML = `
+    <div class="empty-visual">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(copy)}</span>
+    </div>
+  `;
+}
+
 function renderPreview(src, name = "", result = null) {
   const stage = $("previewStage");
-  stage.className = `preview-stage ${result ? resultClass(result.final_label) : ""}`.trim();
+  stage.className = `preview-stage has-image ${result ? resultClass(result.final_label) : ""}`.trim();
   stage.innerHTML = `
-    <img id="previewImage" src="${escapeHtml(src)}" alt="${escapeHtml(name || "Selected image")}">
+    <img id="previewImage" src="${escapeHtml(src)}" alt="${escapeHtml(name || "Ảnh đã chọn")}">
     ${
       result
         ? `<div class="preview-result-ribbon ${resultClass(result.final_label)}">
@@ -271,20 +465,58 @@ function renderPreview(src, name = "", result = null) {
         : ""
     }
   `;
+  setPreviewPanelState(
+    result ? "Ảnh đã phân tích" : "Ảnh xem trước",
+    result ? "Đã phân tích ảnh xong." : "Đã tải ảnh và sẵn sàng phân tích.",
+    true
+  );
+}
+
+function clearSelectedImage() {
+  if (state.busy) return;
+
+  state.selectedFile = null;
+  state.selectedUrl = "";
+  state.lastResult = null;
+  clearUrlCheckTimer();
+  state.urlCheckSeq += 1;
+
+  const imageInput = $("imageInput");
+  const urlInput = $("urlInput");
+  if (imageInput) imageInput.value = "";
+  if (urlInput) urlInput.value = "";
+
+  updateSelectedInput("Chưa chọn ảnh.");
+  renderEmptyPreview();
+  setPreviewPanelState();
+  renderSummaryIdle("Đang chờ ảnh", "Chưa có kết quả");
+  setMessage("Đã loại ảnh đang tải.", "success");
+  syncControlState();
 }
 
 function handleFile(file) {
+  if (state.busy) return;
+
   if (!state.modelEnabled) {
-    setMessage("Model dang tat. Khong the load anh.", "warning");
+    setMessage("Model đang tắt. Không thể tải ảnh.", "warning");
     return;
   }
 
   const validation = validateImageFile(file);
   if (!validation.ok) {
     setMessage(validation.error, "error");
+    state.selectedFile = null;
+    state.selectedUrl = "";
+    state.lastResult = null;
+    renderEmptyPreview("Tệp không hợp lệ", "Vui lòng chọn ảnh jpg, jpeg, png hoặc webp.");
+    setPreviewPanelState("Tệp không hợp lệ", "Không có ảnh nào được tải.", false);
+    renderSummaryIdle("Tệp không hợp lệ", "Vui lòng chọn ảnh khác");
+    syncControlState();
     return;
   }
 
+  clearUrlCheckTimer();
+  state.urlCheckSeq += 1;
   state.selectedFile = file;
   state.selectedUrl = "";
   state.lastResult = null;
@@ -293,14 +525,17 @@ function handleFile(file) {
   const reader = new FileReader();
   reader.onload = () => renderPreview(reader.result, file.name);
   reader.readAsDataURL(file);
-  updateSelectedInput(`File: ${file.name}`);
-  setMessage(`${file.name} da san sang de phan tich.`, "success");
-  renderSummaryIdle("San sang", "Bam Phan tich de chay model");
+  updateSelectedInput(`Tệp: ${file.name}`);
+  setMessage(`${file.name} đã sẵn sàng để phân tích.`, "success");
+  renderSummaryIdle("Sẵn sàng", "Bấm Phân tích để chạy model");
+  syncControlState();
 }
 
 async function loadUrlPreview() {
+  if (state.busy) return;
+
   if (!state.modelEnabled) {
-    setMessage("Model dang tat. Khong the load URL.", "warning");
+    setMessage("Model đang tắt. Không thể tải URL.", "warning");
     return;
   }
 
@@ -308,90 +543,141 @@ async function loadUrlPreview() {
   const validation = validateImageUrl(urlValue);
   if (!validation.ok) {
     setMessage(validation.error, "error");
-    updateSelectedInput("URL chua hop le.");
+    updateSelectedInput("URL chưa hợp lệ.");
     return;
   }
 
+  const checkSeq = ++state.urlCheckSeq;
   const formData = new FormData();
   formData.append("url", urlValue);
 
-  const loadButton = $("loadUrlButton");
   const analyzeButton = $("analyzeButton");
-  loadButton.disabled = true;
-  analyzeButton.disabled = true;
-  setButtonBusy(loadButton, true, "Dang load...");
-  setBusy(true, "Dang load anh", "Dang tai preview tu URL.");
-  setMessage("Dang load anh tu URL...");
+  setButtonBusy(analyzeButton, true, "Đang kiểm tra...");
+  setBusy(true, "Đang kiểm tra URL", "Đang tải bản xem trước để xác thực ảnh.");
+  setPreviewPanelState("Đang kiểm tra URL", "Đang tải bản xem trước để xác thực ảnh.", false);
+  setMessage("Đang kiểm tra URL ảnh...");
   updateSelectedInput(`URL: ${urlValue}`);
 
   try {
     const result = await apiPostForm("/api/load-url", formData);
+    if (checkSeq !== state.urlCheckSeq) return;
+
     state.selectedFile = null;
     state.selectedUrl = urlValue;
     state.lastResult = null;
     $("imageInput").value = "";
-    renderPreview(result.preview_data_url, result.input_name || "Remote image URL");
-    renderSummaryIdle("Da load anh", "Bam Phan tich de chay model");
-    setMessage(`Da load anh URL (${Math.round(Number(result.size_bytes || 0) / 1024)} KB).`, "success");
+    renderPreview(result.preview_data_url, result.input_name || "Ảnh từ URL");
+    renderSummaryIdle("Đã tải ảnh", "Bấm Phân tích để chạy model");
+    setMessage(`URL hợp lệ (${Math.round(Number(result.size_bytes || 0) / 1024)} KB). Có thể bấm Phân tích.`, "success");
   } catch (error) {
-    setMessage(error.message, "error");
-    updateSelectedInput("Khong load duoc URL.");
+    if (checkSeq !== state.urlCheckSeq) return;
+
+    state.selectedUrl = "";
+    setMessage(friendlyUrlError(error.message), "error");
+    updateSelectedInput("URL không hợp lệ.");
+    renderEmptyPreview("URL không hợp lệ", "Vui lòng nhập URL ảnh hợp lệ khác.");
+    setPreviewPanelState("URL không hợp lệ", "Không có ảnh nào được tải từ URL này.", false);
+    renderSummaryIdle("URL không hợp lệ", "Vui lòng nhập URL ảnh khác");
     refreshModelState().catch(() => {});
   } finally {
     setBusy(false);
-    setButtonBusy(loadButton, false);
-    loadButton.disabled = !state.modelEnabled;
-    analyzeButton.disabled = !state.modelEnabled;
+    setButtonBusy(analyzeButton, false);
+    syncControlState();
   }
+}
+
+function scheduleUrlPreviewCheck() {
+  clearUrlCheckTimer();
+  state.urlCheckSeq += 1;
+
+  if (state.busy || !state.modelEnabled) return;
+
+  const value = $("urlInput").value.trim();
+  state.selectedFile = null;
+  state.selectedUrl = "";
+  state.lastResult = null;
+  $("imageInput").value = "";
+
+  if (!value) {
+    renderEmptyPreview();
+    setPreviewPanelState();
+    renderSummaryIdle("Đang chờ ảnh", "Chưa có kết quả");
+    setMessage("");
+    updateSelectedInput("Chưa chọn ảnh.");
+    syncControlState();
+    return;
+  }
+
+  const validation = validateImageUrl(value);
+  if (!validation.ok) {
+    renderEmptyPreview("URL chưa hợp lệ", "Vui lòng nhập URL http hoặc https.");
+    setPreviewPanelState("URL chưa hợp lệ", "Vui lòng nhập URL ảnh hợp lệ.", false);
+    renderSummaryIdle("URL chưa hợp lệ", "Cần URL http hoặc https");
+    setMessage(validation.error, "error");
+    updateSelectedInput("URL chưa hợp lệ.");
+    syncControlState();
+    return;
+  }
+
+  renderEmptyPreview("Đang kiểm tra URL", "Hệ thống đang tải bản xem trước của ảnh.");
+  setPreviewPanelState("Đang kiểm tra URL", "Hệ thống đang tải bản xem trước của ảnh.", false);
+  renderSummaryIdle("Đang kiểm tra URL", "Sẽ mở Phân tích nếu ảnh hợp lệ");
+  setMessage("URL đúng định dạng. Đang kiểm tra ảnh...");
+  updateSelectedInput(`URL đang kiểm tra: ${value}`);
+  syncControlState();
+
+  state.urlCheckTimer = window.setTimeout(() => {
+    state.urlCheckTimer = null;
+    loadUrlPreview();
+  }, 650);
 }
 
 function decisionText(status) {
   const map = {
-    selected_highest_confidence: "Chon model tu tin nhat",
+    selected_highest_confidence: "Chọn model tự tin nhất",
   };
   return map[status] || status;
 }
 
 function renderSummary(result) {
-  const labelClass = result.final_label === "AI-generated" ? "label-ai" : "label-real";
   const selectedModel = result.selected_model?.name || "-";
   const aiScore = Number(result.final_score || 0);
   const processingMs = Number(result.processing_time_ms || 0);
   $("summaryCards").innerHTML = `
-    <article class="summary-card primary-result ${resultClass(result.final_label)}">
-      <span>Nhan</span>
-      <strong><span class="label-pill ${labelClass}">${escapeHtml(labelText(result.final_label))}</span></strong>
-      <small>${escapeHtml(selectedModel)}</small>
+    <article class="summary-card primary-result result-label-card ${resultClass(result.final_label)}">
+      <span>Nhãn</span>
+      <strong>${escapeHtml(labelText(result.final_label))}</strong>
+      <small>${escapeHtml(selectedModel)} - AI ${percent(aiScore)}</small>
     </article>
     <article class="summary-card">
-      <span>Diem AI</span>
+      <span>Điểm AI</span>
       <strong>${percent(aiScore)}</strong>
       <small>${aiScore.toFixed(6)}</small>
     </article>
     <article class="summary-card">
-      <span>Xu ly</span>
+      <span>Xử lý</span>
       <strong>${processingMs} ms</strong>
       <small>${escapeHtml(decisionText(result.decision_status))}</small>
     </article>
   `;
 }
 
-function renderSummaryIdle(title = "Dang cho anh", copy = "Chua co ket qua") {
+function renderSummaryIdle(title = "Đang chờ ảnh", copy = "Chưa có kết quả") {
   $("summaryCards").innerHTML = `
     <article class="summary-card">
-      <span>Nhan</span>
+      <span>Nhãn</span>
       <strong>-</strong>
       <small>${escapeHtml(title)}</small>
     </article>
     <article class="summary-card">
-      <span>Diem AI</span>
+      <span>Điểm AI</span>
       <strong>-</strong>
       <small>${escapeHtml(copy)}</small>
     </article>
     <article class="summary-card">
-      <span>Xu ly</span>
+      <span>Xử lý</span>
       <strong>-</strong>
-      <small>Chua chay model</small>
+      <small>Chưa chạy model</small>
     </article>
   `;
 }
@@ -399,26 +685,26 @@ function renderSummaryIdle(title = "Dang cho anh", copy = "Chua co ket qua") {
 function renderSummaryLoading() {
   $("summaryCards").innerHTML = `
     <article class="summary-card loading-card">
-      <span>Nhan</span>
-      <strong>Dang phan tich</strong>
-      <small>Dang cho model tra ket qua</small>
+      <span>Nhãn</span>
+      <strong>Đang phân tích</strong>
+      <small>Đang chờ model trả kết quả</small>
     </article>
     <article class="summary-card loading-card">
-      <span>Diem AI</span>
+      <span>Điểm AI</span>
       <strong>...</strong>
-      <small>Dang tinh score</small>
+      <small>Đang tính score</small>
     </article>
     <article class="summary-card loading-card">
-      <span>Xu ly</span>
+      <span>Xử lý</span>
       <strong>...</strong>
-      <small>Dang xu ly anh</small>
+      <small>Đang xử lý ảnh</small>
     </article>
   `;
 }
 
 function detailValue(value) {
   if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "boolean") return value ? "Co" : "Khong";
+  if (typeof value === "boolean") return value ? "Có" : "Không";
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
 }
@@ -433,9 +719,9 @@ function detailRow(label, value) {
 }
 
 function resultStatusText(result) {
-  if (!result) return "Chua co ket qua";
-  if (result.low_confidence) return "Can xem xet them";
-  return "Da hoan tat";
+  if (!result) return "Chưa có kết quả";
+  if (result.low_confidence) return "Cần xem xét thêm";
+  return "Đã hoàn tất";
 }
 
 function renderImageResultDetail() {
@@ -444,10 +730,10 @@ function renderImageResultDetail() {
     return `
       <section class="popup-section image-result-empty">
         <div class="popup-section-header">
-          <span>Ket qua anh</span>
-          <strong>Chua phan tich</strong>
+          <span>Kết quả ảnh</span>
+          <strong>Chưa phân tích</strong>
         </div>
-        <p>Chon anh va bam Phan tich de hien thi ket qua tai day.</p>
+        <p>Chọn ảnh và bấm Phân tích để hiển thị kết quả tại đây.</p>
       </section>
     `;
   }
@@ -456,31 +742,31 @@ function renderImageResultDetail() {
   const confidence = Number(result.selected_confidence || 0);
   const percent = Math.round(confidence * 100);
   const selectedModel = result.selected_model?.name || "-";
-  const labelClass = result.final_label === "AI-generated" ? "label-ai" : "label-real";
+  const labelClass = isAiLabel(result.final_label) ? "label-ai" : "label-real";
   return `
     <section class="popup-section image-result-detail">
       <div class="popup-section-header">
-        <span>Ket qua anh</span>
+        <span>Kết quả ảnh</span>
         <strong>${escapeHtml(resultStatusText(result))}</strong>
       </div>
       <div class="result-highlight">
         <div>
-          <span>Nhan du doan</span>
-          <strong><span class="label-pill ${labelClass}">${escapeHtml(result.final_label)}</span></strong>
+          <span>Nhãn dự đoán</span>
+          <strong><span class="label-pill ${labelClass}">${escapeHtml(labelText(result.final_label))}</span></strong>
         </div>
         <div>
-          <span>Model chon</span>
+          <span>Model chọn</span>
           <strong>${escapeHtml(selectedModel)}</strong>
         </div>
         <div>
-          <span>Confidence</span>
+          <span>Độ tin cậy</span>
           <strong>${confidence.toFixed(6)}</strong>
         </div>
       </div>
-      <div class="score-meter" aria-label="Confidence ${percent}%">
+      <div class="score-meter" aria-label="Độ tin cậy ${percent}%">
         <span style="width:${Math.max(2, Math.min(100, percent))}%"></span>
       </div>
-      <p>Score AI cua model duoc chon: ${score.toFixed(6)}. Thoi gian phan tich: ${Number(result.processing_time_ms || 0)} ms.</p>
+      <p>Score AI của model được chọn: ${score.toFixed(6)}. Thời gian phân tích: ${Number(result.processing_time_ms || 0)} ms.</p>
       ${result.warning ? `<p class="message warning">${escapeHtml(result.warning)}</p>` : ""}
     </section>
   `;
@@ -491,7 +777,7 @@ function renderModelScoreDetail() {
   if (!scores.length) return "";
 
   const rows = scores.map((item) => {
-    const voteClass = item.vote === "AI-generated" ? "vote-ai" : "vote-real";
+    const voteClass = isAiLabel(item.vote) ? "vote-ai" : "vote-real";
     return `
       <tr>
         <td>${escapeHtml(item.model)}</td>
@@ -499,7 +785,7 @@ function renderModelScoreDetail() {
         <td>${Number(item.prob_real).toFixed(6)}</td>
         <td>${Number(item.prob_ai).toFixed(6)}</td>
         <td>${Number(item.confidence).toFixed(6)}</td>
-        <td><span class="vote-pill ${voteClass}">${escapeHtml(item.vote)}</span></td>
+        <td><span class="vote-pill ${voteClass}">${escapeHtml(labelText(item.vote))}</span></td>
       </tr>
     `;
   }).join("");
@@ -507,7 +793,7 @@ function renderModelScoreDetail() {
   return `
     <section class="popup-section">
       <div class="popup-section-header">
-        <span>Output tung model</span>
+        <span>Output từng model</span>
         <strong>${scores.length} models</strong>
       </div>
       <div class="table-shell model-score-table">
@@ -515,11 +801,11 @@ function renderModelScoreDetail() {
           <thead>
             <tr>
               <th>Model</th>
-              <th>Raw output</th>
-              <th>Real</th>
+              <th>Output thô</th>
+              <th>Ảnh thật</th>
               <th>AI</th>
-              <th>Confidence</th>
-              <th>Vote</th>
+              <th>Độ tin cậy</th>
+              <th>Dự đoán</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -533,7 +819,7 @@ function renderConfiguredModels(models) {
   if (!Array.isArray(models) || !models.length) return "";
   const rows = models.map((model) => {
     const statusClass = model.found ? "vote-real" : "vote-ai";
-    const statusText = model.found ? "Da load file" : "Thieu file";
+    const statusText = model.found ? "Đã tải tệp" : "Thiếu tệp";
     return `
       <tr>
         <td>${escapeHtml(model.name)}</td>
@@ -547,7 +833,7 @@ function renderConfiguredModels(models) {
   return `
     <section class="popup-section">
       <div class="popup-section-header">
-        <span>Danh sach model ONNX</span>
+        <span>Danh sách model ONNX</span>
         <strong>${models.length} models</strong>
       </div>
       <div class="table-shell model-score-table">
@@ -555,9 +841,9 @@ function renderConfiguredModels(models) {
           <thead>
             <tr>
               <th>Model</th>
-              <th>File</th>
-              <th>Input</th>
-              <th>Trang thai</th>
+              <th>Tệp</th>
+              <th>Đầu vào</th>
+              <th>Trạng thái</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -571,7 +857,7 @@ function renderModelDetail(detail) {
   const status = detail.model_enabled ? "" : `
     <div class="modal-warning">
       <strong>MODEL OFF</strong>
-      <span>Model dang tat, chuc nang load anh va phan tich hien dang tam khoa.</span>
+      <span>Model đang tắt, chức năng tải ảnh và phân tích hiện đang tạm khóa.</span>
     </div>
   `;
 
@@ -583,17 +869,85 @@ function renderModelDetail(detail) {
   `;
 }
 
+function syncModalOpenState() {
+  const hasOpenModal = Boolean(document.querySelector(".modal:not([hidden])"));
+  document.body.classList.toggle("modal-open", hasOpenModal);
+}
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 700px)").matches;
+}
+
+function ensureIntroModal() {
+  let modal = $("introModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "introModal";
+  modal.className = "modal intro-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "introModalTitle");
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="modal-backdrop" data-intro-modal-close></div>
+    <section class="modal-panel intro-modal-panel">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">AI Generated Image Detection</p>
+          <h2 id="introModalTitle">Nhận diện ảnh thật và ảnh AI</h2>
+        </div>
+      </header>
+      <div class="intro-modal-content">
+        <p>Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model.</p>
+        <ol class="hero-guide" aria-label="Hướng dẫn nhanh trên mobile">
+          <li>Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.</li>
+          <li>Xác nhận ảnh xem trước, sau đó bấm Phân tích.</li>
+          <li>Xem kết luận, điểm AI và chi tiết xử lý.</li>
+        </ol>
+        <div class="intro-modal-actions">
+          <button id="introModalClose" class="btn btn-primary" type="button">Đã hiểu</button>
+        </div>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openIntroModalOnMobile() {
+  if (!isMobileViewport()) return;
+
+  const modal = ensureIntroModal();
+  if (!modal) return;
+
+  modal.hidden = false;
+  syncModalOpenState();
+}
+
+function closeIntroModal() {
+  const modal = $("introModal");
+  if (!modal) return;
+
+  modal.hidden = true;
+  syncModalOpenState();
+}
+
 function closeModelDetail() {
+  if (state.busy) return;
+
   const modal = $("modelDetailModal");
   modal.hidden = true;
-  document.body.classList.remove("modal-open");
+  syncModalOpenState();
 }
 
 async function openModelDetail() {
+  if (state.busy) return;
+
   const modal = $("modelDetailModal");
-  $("modelDetailContent").innerHTML = `<p>Dang tai thong so model...</p>`;
+  $("modelDetailContent").innerHTML = `<p>Đang tải chi tiết kết quả...</p>`;
   modal.hidden = false;
-  document.body.classList.add("modal-open");
+  syncModalOpenState();
 
   try {
     renderModelDetail(await apiGetJson("/api/model-detail"));
@@ -604,24 +958,40 @@ async function openModelDetail() {
 
 async function runAnalyze(event) {
   event.preventDefault();
+  if (state.busy) return;
+
   if (!state.modelEnabled) {
-    setMessage("Model dang tat. Khong the phan tich.", "warning");
+    setMessage("Model đang tắt. Không thể phân tích.", "warning");
     return;
   }
 
   const urlValue = $("urlInput").value.trim();
   const selectedUrl = urlValue || state.selectedUrl;
+  const unavailableReason = analyzeUnavailableReason();
+  if (unavailableReason) {
+    setMessage(unavailableReason, "warning");
+    updateSelectedInput("Chưa có ảnh sẵn sàng để phân tích.");
+    if (urlValue && !state.selectedFile && state.selectedUrl !== urlValue) {
+      scheduleUrlPreviewCheck();
+    }
+    syncControlState();
+    return;
+  }
+
   const validation = state.selectedFile ? validateImageFile(state.selectedFile) : validateImageUrl(selectedUrl);
 
   if (!validation.ok) {
     setMessage(validation.error, "error");
+    updateSelectedInput("Chưa có ảnh sẵn sàng để phân tích.");
+    syncControlState();
     return;
   }
 
   if (urlValue && !state.selectedFile) {
     if (state.selectedUrl !== urlValue) {
-      setMessage("Vui long bam Load URL de hien thi anh truoc khi phan tich.", "warning");
-      updateSelectedInput(`URL chua load: ${urlValue}`);
+      setMessage("URL chưa được kiểm tra hợp lệ. Vui lòng chờ hệ thống kiểm tra xong.", "warning");
+      updateSelectedInput(`URL chưa kiểm tra: ${urlValue}`);
+      scheduleUrlPreviewCheck();
       return;
     }
     state.selectedUrl = urlValue;
@@ -635,38 +1005,39 @@ async function runAnalyze(event) {
     formData.append("url", selectedUrl);
   }
 
-  $("analyzeButton").disabled = true;
-  setButtonBusy($("analyzeButton"), true, "Dang phan tich...");
-  setBusy(true, "Dang phan tich anh", "Model dang xu ly, ket qua se hien ngay khi xong.");
+  setButtonBusy($("analyzeButton"), true, "Đang phân tích...");
+  setBusy(true, "Đang phân tích ảnh", "Model đang xử lý, kết quả sẽ hiện ngay khi xong.");
   renderSummaryLoading();
-  setMessage("Dang phan tich anh...");
+  setMessage("Đang phân tích ảnh...");
   await sleep(150);
 
   try {
     const result = await apiPostForm("/api/analyze", formData);
     state.lastResult = result;
     if (result.preview_data_url) {
-      renderPreview(result.preview_data_url, result.input_name || "Remote image URL", result);
+      renderPreview(result.preview_data_url, result.input_name || "Ảnh từ URL", result);
     } else {
       const currentImage = $("previewImage");
       if (currentImage) {
-        renderPreview(currentImage.src, result.input_name || "Selected image", result);
+        renderPreview(currentImage.src, result.input_name || "Ảnh đã chọn", result);
       }
     }
     renderSummary(result);
-    setMessage(`Hoan tat: ${labelText(result.final_label)} - diem AI ${percent(result.final_score)}.`, result.warning ? "warning" : "success");
+    setMessage(`Hoàn tất: ${labelText(result.final_label)} - điểm AI ${percent(result.final_score)}.`, result.warning ? "warning" : "success");
   } catch (error) {
     setMessage(error.message, "error");
-    renderSummaryIdle("Phan tich loi", "Vui long thu lai");
+    renderSummaryIdle("Phân tích lỗi", "Vui lòng thử lại");
     refreshModelState().catch(() => {});
   } finally {
     setBusy(false);
     setButtonBusy($("analyzeButton"), false);
-    $("analyzeButton").disabled = !state.modelEnabled;
+    syncControlState();
   }
 }
 
 function bindEvents() {
+  ensureFreshStylesheet();
+  localizeStaticText();
   initTheme();
   refreshModelState().catch((error) => setMessage(error.message, "error"));
   window.setInterval(() => {
@@ -678,24 +1049,15 @@ function bindEvents() {
     if (file) handleFile(file);
   });
 
-  $("urlInput").addEventListener("input", (event) => {
-    if (!state.modelEnabled) return;
-    const value = event.target.value.trim();
-    state.selectedFile = null;
-    $("imageInput").value = "";
-    state.selectedUrl = "";
-    state.lastResult = null;
-    $("previewStage").className = "preview-stage";
-    renderSummaryIdle(value ? "Dang cho Load URL" : "Dang cho anh", value ? "Can load preview truoc" : "Chua co ket qua");
-    setMessage(value ? "Bam Load URL de hien thi anh truoc khi phan tich." : "");
-    updateSelectedInput(value ? `URL: ${value}` : "Chua chon anh.");
+  $("urlInput").addEventListener("input", () => {
+    scheduleUrlPreviewCheck();
   });
 
   const dropZone = $("dropZone");
   ["dragenter", "dragover"].forEach((name) => {
     dropZone.addEventListener(name, (event) => {
       event.preventDefault();
-      if (!state.modelEnabled) return;
+      if (state.busy || !state.modelEnabled) return;
       dropZone.classList.add("is-dragging");
     });
   });
@@ -706,21 +1068,34 @@ function bindEvents() {
     });
   });
   dropZone.addEventListener("drop", (event) => {
-    if (!state.modelEnabled) return;
+    if (state.busy || !state.modelEnabled) return;
     const file = event.dataTransfer.files?.[0];
     if (file) handleFile(file);
   });
 
-  $("loadUrlButton").addEventListener("click", loadUrlPreview);
   $("analyzeForm").addEventListener("submit", runAnalyze);
+  $("clearImageButton").addEventListener("click", clearSelectedImage);
   $("modelDetailButton").addEventListener("click", openModelDetail);
   $("modelDetailClose").addEventListener("click", closeModelDetail);
+  const introModal = ensureIntroModal();
+  $("introModalClose")?.addEventListener("click", closeIntroModal);
+  introModal.addEventListener("click", (event) => {
+    if (event.target?.hasAttribute("data-intro-modal-close")) closeIntroModal();
+  });
   $("modelDetailModal").addEventListener("click", (event) => {
-    if (event.target?.hasAttribute("data-modal-close")) closeModelDetail();
+    if (!state.busy && event.target?.hasAttribute("data-modal-close")) closeModelDetail();
   });
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("modelDetailModal").hidden) closeModelDetail();
+    if (event.key !== "Escape") return;
+    const introModal = $("introModal");
+    if (introModal && !introModal.hidden) {
+      closeIntroModal();
+      return;
+    }
+    if (!state.busy && !$("modelDetailModal").hidden) closeModelDetail();
   });
+  syncControlState();
+  openIntroModalOnMobile();
 }
 
 document.addEventListener("DOMContentLoaded", bindEvents);

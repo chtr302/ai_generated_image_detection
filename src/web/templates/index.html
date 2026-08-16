@@ -12,7 +12,7 @@
         document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
       })();
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=20260816-mobile-font-detail">
   </head>
   <body>
     <div class="app-shell">
@@ -26,92 +26,132 @@
             </div>
             <span class="terminal-path">~/ai-image-detection</span>
           </div>
-          <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode" aria-pressed="false" title="Switch theme">
+          <button id="themeToggle" class="theme-toggle" type="button" aria-label="Chuyển sang giao diện sáng" aria-pressed="false" title="Đổi giao diện">
             <span class="theme-toggle-track" aria-hidden="true">
               <span class="theme-toggle-thumb"></span>
             </span>
-            <span id="themeToggleText">Dark</span>
+            <span id="themeToggleText">Tối</span>
           </button>
         </header>
 
         <main class="app-body">
-          <section class="hero">
-            <p class="eyebrow">AI Generated Image Detection</p>
-            <h1>Kiem tra anh that hay anh do AI tao</h1>
-            <p>Upload anh hoac nhap URL de xem nhan du doan, diem AI va thong so xu ly cua model.</p>
-          </section>
-
           <section class="main-grid">
-            <aside class="panel input-panel">
-              <div class="panel-header">
-                <div>
-                  <h2>Anh dau vao</h2>
-                  <p>Ho tro jpg, jpeg, png, webp. Toi da 10 MB.</p>
+            <div class="side-stack left-stack">
+              <section class="panel hero">
+                <p class="eyebrow">AI Generated Image Detection</p>
+                <h1>Nhận diện ảnh thật và ảnh AI</h1>
+                <p>Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model.</p>
+                <ol class="hero-guide" aria-label="Hướng dẫn nhanh">
+                  <li>Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.</li>
+                  <li>Xác nhận ảnh xem trước, sau đó bấm Phân tích.</li>
+                  <li>Xem kết luận, điểm AI và chi tiết xử lý.</li>
+                </ol>
+              </section>
+
+              <section class="panel result-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Kết quả</h2>
+                    <p>Dự đoán cuối cùng và thông số xử lý.</p>
+                  </div>
+                  <button id="modelDetailButton" class="btn btn-secondary btn-small" type="button">Chi tiết kết quả</button>
                 </div>
-              </div>
 
-              <form id="analyzeForm" class="analyze-form" novalidate>
-                <label id="dropZone" class="drop-zone" for="imageInput">
-                  <input id="imageInput" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
-                  <span class="drop-title">Bam de chon anh</span>
-                  <span class="drop-copy">hoac keo anh vao khung nay.</span>
-                  <span class="drop-action">Chon anh tu may</span>
-                </label>
+                <div id="summaryCards" class="summary-grid">
+                  <article class="summary-card">
+                    <span>Nhãn</span>
+                    <strong>-</strong>
+                    <small>Đang chờ ảnh</small>
+                  </article>
+                  <article class="summary-card">
+                    <span>Điểm AI</span>
+                    <strong>-</strong>
+                    <small>Xác suất ảnh AI</small>
+                  </article>
+                  <article class="summary-card">
+                    <span>Xử lý</span>
+                    <strong>-</strong>
+                    <small>Thời gian xử lý</small>
+                  </article>
+                </div>
+              </section>
+            </div>
 
-                <div class="field-group">
-                  <label for="urlInput">Hoac nhap URL anh</label>
-                  <div class="url-load-row">
-                    <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com/image.png" autocomplete="off">
-                    <button id="loadUrlButton" class="btn btn-secondary" type="button">Load URL</button>
+            <div class="side-stack right-stack">
+              <aside class="panel input-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Ảnh đầu vào</h2>
+                    <p>Hỗ trợ jpg, jpeg, png, webp. Tối đa 10 MB.</p>
                   </div>
                 </div>
 
-                <div id="selectedInput" class="selected-input">Chua chon anh.</div>
+                <form id="analyzeForm" class="analyze-form" novalidate>
+                  <label id="dropZone" class="drop-zone" for="imageInput">
+                    <input id="imageInput" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+                    <span class="drop-title">Bấm để chọn ảnh</span>
+                    <span class="drop-copy">hoặc kéo ảnh vào khung này.</span>
+                    <span class="drop-action">Chọn ảnh từ máy</span>
+                  </label>
 
-                <div class="action-row">
-                  <button id="analyzeButton" class="btn btn-primary" type="submit">Phan tich</button>
+                  <div class="field-group">
+                    <label for="urlInput">Hoặc nhập URL ảnh</label>
+                    <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com/image.png" autocomplete="off">
+                  </div>
+
+                  <div id="selectedInput" class="selected-input">Chưa chọn ảnh.</div>
+
+                  <div class="action-row">
+                    <button id="analyzeButton" class="btn btn-primary" type="submit">Phân tích</button>
+                    <div id="analyzeTooltip" class="analyze-tooltip" role="tooltip" hidden></div>
+                  </div>
+
+                  <div id="message" class="message" role="status" aria-live="polite"></div>
+                </form>
+              </aside>
+
+              <section class="panel preview-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2 id="previewPanelTitle">Ảnh đã tải</h2>
+                    <p id="previewPanelSubtitle">Chưa có ảnh để xem trước.</p>
+                  </div>
+                  <button id="clearImageButton" class="icon-button clear-image-button" type="button" aria-label="Loại ảnh đang tải" title="Loại ảnh đang tải" hidden>x</button>
                 </div>
-              </form>
 
-              <div id="message" class="message" role="status" aria-live="polite"></div>
-            </aside>
-
-            <section class="panel result-panel">
-              <div class="panel-header">
-                <div>
-                  <h2>Ket qua</h2>
-                  <p>Du doan cuoi cung va anh dang kiem tra.</p>
+                <div id="previewStage" class="preview-stage">
+                  <div class="empty-visual">
+                    <strong>Chưa có ảnh</strong>
+                    <span>Vui lòng chọn ảnh hoặc nhập URL.</span>
+                  </div>
                 </div>
-                <button id="modelDetailButton" class="btn btn-secondary btn-small" type="button">Thong so model</button>
-              </div>
-
-              <div id="previewStage" class="preview-stage">
-                <div class="empty-visual">
-                  <strong>Chua co anh</strong>
-                  <span>Vui long chon anh hoac nhap URL.</span>
-                </div>
-              </div>
-
-              <div id="summaryCards" class="summary-grid">
-                <article class="summary-card">
-                  <span>Nhan</span>
-                  <strong>-</strong>
-                  <small>Dang cho anh</small>
-                </article>
-                <article class="summary-card">
-                  <span>Diem AI</span>
-                  <strong>-</strong>
-                  <small>Xac suat anh AI</small>
-                </article>
-                <article class="summary-card">
-                  <span>Xu ly</span>
-                  <strong>-</strong>
-                  <small>Thoi gian xu ly</small>
-                </article>
-              </div>
-            </section>
+              </section>
+            </div>
           </section>
         </main>
+      </section>
+    </div>
+
+    <div id="introModal" class="modal intro-modal" role="dialog" aria-modal="true" aria-labelledby="introModalTitle" hidden>
+      <div class="modal-backdrop" data-intro-modal-close></div>
+      <section class="modal-panel intro-modal-panel">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">AI Generated Image Detection</p>
+            <h2 id="introModalTitle">Nhận diện ảnh thật và ảnh AI</h2>
+          </div>
+        </header>
+        <div class="intro-modal-content">
+          <p>Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model.</p>
+          <ol class="hero-guide" aria-label="Hướng dẫn nhanh trên mobile">
+            <li>Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.</li>
+            <li>Xác nhận ảnh xem trước, sau đó bấm Phân tích.</li>
+            <li>Xem kết luận, điểm AI và chi tiết xử lý.</li>
+          </ol>
+          <div class="intro-modal-actions">
+            <button id="introModalClose" class="btn btn-primary" type="button">Đã hiểu</button>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -120,16 +160,16 @@
       <section class="modal-panel">
         <header class="modal-header">
           <div>
-            <h2 id="modelDetailTitle">Thong so model</h2>
+            <h2 id="modelDetailTitle">Chi tiết kết quả</h2>
           </div>
-          <button id="modelDetailClose" class="modal-close" type="button" aria-label="Dong popup">x</button>
+          <button id="modelDetailClose" class="modal-close" type="button" aria-label="Đóng popup">x</button>
         </header>
         <div id="modelDetailContent" class="model-detail-content">
-          <p>Dang tai thong so model...</p>
+          <p>Đang tải chi tiết kết quả...</p>
         </div>
       </section>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=20260816-mobile-font-detail"></script>
   </body>
 </html>
