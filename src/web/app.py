@@ -56,7 +56,7 @@ def model_state_payload() -> dict[str, object]:
     return {
         "enabled": MODEL_STATE["enabled"],
         "mode": "on" if MODEL_STATE["enabled"] else "off",
-        "message": "Model dang bat." if MODEL_STATE["enabled"] else "Model dang tat. Chuc nang phan tich da bi khoa.",
+        "message": "Model đang bật." if MODEL_STATE["enabled"] else "Model đang tắt. Chức năng phân tích đã bị khóa.",
     }
 
 
@@ -93,7 +93,7 @@ def control_auth_error():
         return (
             jsonify(
                 {
-                    "error": "Thieu model control key.",
+                    "error": "Thiếu model control key.",
                     "error_code": "missing_model_control_key",
                     **model_control_key_status_payload(),
                 }
@@ -105,7 +105,7 @@ def control_auth_error():
         return (
             jsonify(
                 {
-                    "error": "Model control key khong hop le.",
+                    "error": "Model control key không hợp lệ.",
                     "error_code": "invalid_model_control_key",
                     **model_control_key_status_payload(),
                 }
@@ -117,7 +117,7 @@ def control_auth_error():
 
 def model_disabled_response():
     payload = model_state_payload()
-    payload["error"] = "Model dang tat. Chuc nang phan tich hien dang tam khoa."
+    payload["error"] = "Model đang tắt. Chức năng phân tích hiện đang tạm khóa."
     return jsonify(payload), 503
 
 
@@ -133,7 +133,7 @@ def create_app() -> Flask:
 
     @app.errorhandler(413)
     def payload_too_large(_error):
-        return jsonify({"error": "Tep qua lon. Gioi han request la 64 MB."}), 413
+        return jsonify({"error": "Tệp quá lớn. Giới hạn request là 64 MB."}), 413
 
     @app.get("/")
     def index():
@@ -161,7 +161,7 @@ def create_app() -> Flask:
         return jsonify(
             {
                 "valid": True,
-                "message": "Model control key hop le." if configured else "Chua cau hinh model control key; lenh dieu khien dang mo.",
+                "message": "Model control key hợp lệ." if configured else "Chưa cấu hình model control key; lệnh điều khiển đang mở.",
                 **model_control_key_status_payload(),
             }
         )
@@ -174,9 +174,9 @@ def create_app() -> Flask:
 
         payload = request.get_json(silent=True) or {}
         if "enabled" not in payload:
-            return jsonify({"error": "Thieu truong enabled.", "error_code": "missing_enabled"}), 400
+            return jsonify({"error": "Thiếu trường enabled.", "error_code": "missing_enabled"}), 400
         if not isinstance(payload["enabled"], bool):
-            return jsonify({"error": "Truong enabled phai la boolean true/false.", "error_code": "invalid_enabled"}), 400
+            return jsonify({"error": "Trường enabled phải là boolean true/false.", "error_code": "invalid_enabled"}), 400
 
         enabled = payload["enabled"]
         MODEL_STATE["enabled"] = enabled
@@ -247,7 +247,7 @@ def create_app() -> Flask:
             result["preview_data_url"] = data_url_for_image(url, data)
             return jsonify(result)
 
-        return jsonify({"error": "Vui long upload anh hoac nhap URL anh."}), 400
+        return jsonify({"error": "Vui lòng tải ảnh lên hoặc nhập URL ảnh."}), 400
 
     return app
 
@@ -256,4 +256,6 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)
+    host = os.getenv("AIGID_HOST", "0.0.0.0")
+    port = int(os.getenv("AIGID_PORT", "5000"))
+    app.run(host=host, port=port, debug=False, use_reloader=False)

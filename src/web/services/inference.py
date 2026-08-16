@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -115,7 +116,7 @@ def model_detail_payload(model_enabled: bool) -> dict[str, Any]:
     return {
         "name": "XRayon ONNX Ensemble (2 models)",
         "engine": "onnxruntime",
-        "mode": "San sang" if ready else "Thieu file model",
+        "mode": "Sẵn sàng" if ready else "Thiếu file model",
         "model_enabled": model_enabled,
         "model_dir_env": MODEL_DIR_ENV,
         "model_dir": str(model_dir()),
@@ -133,18 +134,18 @@ def model_detail_payload(model_enabled: bool) -> dict[str, Any]:
 def validate_image_name(name: str, size: int | None = None) -> tuple[bool, str | None]:
     ext = extension_of(name)
     if ext not in SUPPORTED_IMAGES:
-        return False, "Dinh dang khong ho tro. Chi nhan jpg, jpeg, png hoac webp."
+        return False, "Định dạng không hỗ trợ. Chỉ nhận jpg, jpeg, png hoặc webp."
     if size is not None and size > IMAGE_LIMIT_BYTES:
-        return False, "Anh qua lon. Gioi han la 10 MB."
+        return False, "Ảnh quá lớn. Giới hạn là 10 MB."
     return True, None
 
 
 def validate_url(url: str) -> tuple[bool, str | None]:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
-        return False, "URL phai dung http hoac https."
+        return False, "URL phải dùng http hoặc https."
     if not parsed.netloc:
-        return False, "URL thieu ten mien hoac host."
+        return False, "URL thiếu tên miền hoặc host."
     return True, None
 
 
@@ -174,22 +175,32 @@ def fetch_url_image(url: str) -> tuple[bytes | None, str | None]:
         with urlopen(request, timeout=10) as response:
             content_length = response.headers.get("Content-Length")
             if content_length and int(content_length) > IMAGE_LIMIT_BYTES:
-                return None, "Anh URL qua lon. Gioi han la 10 MB."
+                return None, "Ảnh URL quá lớn. Giới hạn là 10 MB."
 
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
             if content_type and content_type not in IMAGE_MIME_TYPES.values():
-                return None, "URL khong tra ve content-type anh hop le."
+                return None, "URL không trả về content-type ảnh hợp lệ."
 
             data = response.read(IMAGE_LIMIT_BYTES + 1)
-    except Exception as exc:
-        return None, f"Khong tai duoc anh tu URL: {exc}"
+    except HTTPError as exc:
+        if exc.code == 403:
+            return None, "URL từ chối truy cập ảnh. Vui lòng dùng link ảnh công khai khác."
+        if exc.code == 404:
+            return None, "Không tìm thấy ảnh tại URL này. Vui lòng kiểm tra lại đường dẫn."
+        return None, "Không tải được ảnh từ URL này. Vui lòng kiểm tra lại đường dẫn ảnh."
+    except URLError:
+        return None, "Không kết nối được tới URL này. Vui lòng kiểm tra tên miền hoặc kết nối mạng."
+    except TimeoutError:
+        return None, "Tải ảnh từ URL quá lâu. Vui lòng thử lại hoặc dùng URL khác."
+    except Exception:
+        return None, "Không tải được ảnh từ URL này. Vui lòng kiểm tra lại đường dẫn ảnh."
 
     if len(data) > IMAGE_LIMIT_BYTES:
-        return None, "Anh URL qua lon. Gioi han la 10 MB."
+        return None, "Ảnh URL quá lớn. Giới hạn là 10 MB."
     if not data:
-        return None, "URL khong tra ve du lieu anh."
+        return None, "URL không trả về dữ liệu ảnh."
     if detect_image_mime(data) is None and extension_of(urlparse(url).path) not in SUPPORTED_IMAGES:
-        return None, "URL khong tra ve du lieu anh hop le."
+        return None, "URL không trả về dữ liệu ảnh hợp lệ."
     return data, None
 
 
@@ -198,7 +209,7 @@ def load_image(data: bytes) -> Image.Image:
         image = Image.open(BytesIO(data))
         image.load()
     except (UnidentifiedImageError, OSError) as exc:
-        raise RuntimeError("File khong phai anh hop le.") from exc
+        raise RuntimeError("Tệp không phải ảnh hợp lệ.") from exc
     return image.convert("RGB")
 
 
@@ -225,12 +236,12 @@ def get_session(spec: dict[str, Any]) -> Any:
 
     path = model_path(spec)
     if not path.exists():
-        raise RuntimeError(f"Khong tim thay model: {path}")
+        raise RuntimeError(f"Không tìm thấy model: {path}")
 
     try:
         import onnxruntime as ort
     except Exception as exc:
-        raise RuntimeError("Chua cai onnxruntime. Hay cai bang: pip install onnxruntime") from exc
+        raise RuntimeError("Chưa cài onnxruntime. Hãy cài bằng: pip install onnxruntime") from exc
 
     _SESSIONS[key] = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
     return _SESSIONS[key]
@@ -259,11 +270,11 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
     if output_values.ndim == 2:
         output_values = output_values[0]
     if output_values.ndim != 1:
-        raise RuntimeError(f"Output model {spec['name']} khong dung dang vector.")
+        raise RuntimeError(f"Output model {spec['name']} không đúng dạng vector.")
     if output_values.size < 2:
-        raise RuntimeError(f"Output model {spec['name']} can it nhat 2 chi so class.")
+        raise RuntimeError(f"Output model {spec['name']} cần ít nhất 2 chỉ số class.")
     if ai_class_index < 0 or ai_class_index >= output_values.size:
-        raise RuntimeError(f"{AI_CLASS_INDEX_ENV} khong hop le voi output {output_values.size} lop.")
+        raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
 
     predicted_index = int(np.argmax(output_values))
     ai_probability = float(output_values[ai_class_index])
@@ -314,7 +325,7 @@ def build_explanation(scores: list[dict[str, Any]], voted: dict[str, Any]) -> tu
     )
     selected = voted["selected_model"]["name"]
     label = voted["final_label"]
-    text = f"Ket qua chon theo model co confidence cao nhat: {selected} => {label}. Output tung model: {names}."
+    text = f"Kết quả chọn theo model có confidence cao nhất: {selected} => {label}. Output từng model: {names}."
     return text, None
 
 
@@ -348,12 +359,16 @@ def worker_loop(conn: Any) -> None:
     # chuthich: Worker giu ONNX session rieng; tat model se kill process nay de tra RAM cho OS.
     try:
         while True:
-            message = conn.recv()
+            try:
+                message = conn.recv()
+            except (KeyboardInterrupt, EOFError, OSError):
+                break
+
             command = message.get("command")
             if command == "stop":
                 break
             if command != "analyze":
-                conn.send({"ok": False, "error": "Lenh worker khong hop le."})
+                conn.send({"ok": False, "error": "Lệnh worker không hợp lệ."})
                 continue
 
             try:
@@ -362,6 +377,8 @@ def worker_loop(conn: Any) -> None:
                 conn.send({"ok": True, "result": result})
             except Exception as exc:
                 conn.send({"ok": False, "error": str(exc)})
+    except KeyboardInterrupt:
+        pass
     finally:
         clear_model_cache()
         conn.close()
@@ -416,7 +433,7 @@ def analyze_upload(input_ref: InputRef, data: bytes) -> dict[str, Any]:
     with _WORKER_LOCK:
         start_model_worker()
         if _WORKER_CONN is None:
-            raise RuntimeError("Khong khoi dong duoc model worker.")
+            raise RuntimeError("Không khởi động được model worker.")
 
         try:
             _WORKER_CONN.send(
@@ -429,13 +446,13 @@ def analyze_upload(input_ref: InputRef, data: bytes) -> dict[str, Any]:
             timeout = safe_env_float(WORKER_TIMEOUT_ENV, 120.0)
             if not _WORKER_CONN.poll(timeout):
                 stop_model_worker()
-                raise RuntimeError("Model worker phan hoi qua lau, da duoc khoi dong lai.")
+                raise RuntimeError("Model worker phản hồi quá lâu, đã được khởi động lại.")
 
             response = _WORKER_CONN.recv()
         except (BrokenPipeError, EOFError, OSError) as exc:
             stop_model_worker()
-            raise RuntimeError("Model worker da dung bat thuong.") from exc
+            raise RuntimeError("Model worker đã dừng bất thường.") from exc
 
         if not response.get("ok"):
-            raise RuntimeError(str(response.get("error") or "Model worker loi."))
+            raise RuntimeError(str(response.get("error") or "Model worker lỗi."))
         return response["result"]
