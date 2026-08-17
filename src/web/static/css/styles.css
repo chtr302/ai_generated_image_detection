@@ -27,6 +27,13 @@
   --red: #ff453a;
   --orange: #ff9f0a;
   --yellow: #ffd60a;
+  --repo-bg: #24292f;
+  --repo-bg-hover: #1f2328;
+  --repo-text: #ffffff;
+  --repo-border: rgba(255, 255, 255, 0.2);
+  --repo-border-hover: rgba(48, 209, 88, 0.75);
+  --repo-focus: rgba(48, 209, 88, 0.45);
+  --repo-shadow: rgba(0, 0, 0, 0.14);
   --font: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --radius: 8px;
 }
@@ -60,6 +67,13 @@ html[data-theme="light"] {
   --red: #a92b24;
   --orange: #8f5100;
   --yellow: #735300;
+  --repo-bg: #f8fbff;
+  --repo-bg-hover: #edf4fb;
+  --repo-text: #0b1220;
+  --repo-border: #7f93aa;
+  --repo-border-hover: #005eb8;
+  --repo-focus: rgba(0, 94, 184, 0.28);
+  --repo-shadow: rgba(15, 23, 42, 0.1);
 }
 
 * {
@@ -75,6 +89,10 @@ body {
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="light"] body {
+  font-weight: 600;
 }
 
 button,
@@ -204,7 +222,7 @@ html[data-theme="light"] .theme-toggle-thumb {
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 13px;
   max-width: none;
   align-content: center;
   min-height: 0;
@@ -233,8 +251,8 @@ html[data-theme="light"] .theme-toggle-thumb {
 .hero-guide {
   display: grid;
   gap: 8px;
-  margin: 0;
-  padding: 12px 0 0 18px;
+  margin: 2px 0 0;
+  padding: 12px 0 0 20px;
   color: var(--muted);
   border-top: 1px solid var(--border-soft);
 }
@@ -242,6 +260,99 @@ html[data-theme="light"] .theme-toggle-thumb {
 .hero-guide li {
   padding-left: 4px;
   line-height: 1.45;
+}
+
+.hero-project-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.repo-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: fit-content;
+  flex: 0 0 auto;
+  min-height: 32px;
+  min-width: 116px;
+  max-width: min(260px, 100%);
+  padding: 6px 9px;
+  color: var(--repo-text);
+  background: var(--repo-bg);
+  border: 1px solid var(--repo-border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 6px 14px var(--repo-shadow);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.repo-icon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.repo-arrow {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+.repo-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-link:hover,
+.repo-link:focus-visible {
+  background: var(--repo-bg-hover);
+  border-color: var(--repo-border-hover);
+  color: var(--repo-text);
+  transform: translateY(-1px);
+}
+
+.repo-link:focus-visible {
+  outline: 2px solid var(--repo-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .hero-project-card {
+    align-items: center;
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .repo-link {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
 }
 
 .main-grid {
@@ -1389,6 +1500,7 @@ body.modal-open {
   .app-window {
     height: 100%;
     min-height: 0;
+    overflow: hidden;
     border-radius: 0;
   }
 

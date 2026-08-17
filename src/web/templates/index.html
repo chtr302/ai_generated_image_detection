@@ -12,7 +12,7 @@
         document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
       })();
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=20260816-mobile-font-detail">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=20260817-mobile-intro-no-repo">
   </head>
   <body>
     <div class="app-shell">
@@ -46,6 +46,19 @@
                   <li>Xác nhận ảnh xem trước, sau đó bấm Phân tích.</li>
                   <li>Xem kết luận, điểm AI và chi tiết xử lý.</li>
                 </ol>
+                <div class="hero-project-card">
+                  <span class="repo-label">Repository</span>
+                  <a class="repo-link" href="https://github.com/chtr302/ai_generated_image_detection" target="_blank" rel="noreferrer" aria-label="Mở GitHub repository của dự án">
+                    <svg class="repo-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    <span>ai_generated_image_detection</span>
+                    <svg class="repo-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path d="M10.5 2.75a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v2a.75.75 0 0 1-1.5 0v-.19L8.53 8.53a.75.75 0 0 1-1.06-1.06l3.97-3.97h-.19a.75.75 0 0 1-.75-.75z"/>
+                      <path d="M3.75 3.5a.25.25 0 0 0-.25.25v8.5c0 .14.11.25.25.25h8.5c.14 0 .25-.11.25-.25v-3a.75.75 0 0 1 1.5 0v3A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.78 2.78 2 3.75 2h3a.75.75 0 0 1 0 1.5h-3z"/>
+                    </svg>
+                  </a>
+                </div>
               </section>
 
               <section class="panel result-panel">
@@ -132,6 +145,21 @@
       </section>
     </div>
 
+    <div id="modelDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modelDetailTitle" hidden>
+      <div class="modal-backdrop" data-modal-close></div>
+      <section class="modal-panel">
+        <header class="modal-header">
+          <div>
+            <h2 id="modelDetailTitle">Chi tiết kết quả</h2>
+          </div>
+          <button id="modelDetailClose" class="modal-close" type="button" aria-label="Đóng popup">x</button>
+        </header>
+        <div id="modelDetailContent" class="model-detail-content">
+          <p>Đang tải chi tiết kết quả...</p>
+        </div>
+      </section>
+    </div>
+
     <div id="introModal" class="modal intro-modal" role="dialog" aria-modal="true" aria-labelledby="introModalTitle" hidden>
       <div class="modal-backdrop" data-intro-modal-close></div>
       <section class="modal-panel intro-modal-panel">
@@ -155,21 +183,6 @@
       </section>
     </div>
 
-    <div id="modelDetailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modelDetailTitle" hidden>
-      <div class="modal-backdrop" data-modal-close></div>
-      <section class="modal-panel">
-        <header class="modal-header">
-          <div>
-            <h2 id="modelDetailTitle">Chi tiết kết quả</h2>
-          </div>
-          <button id="modelDetailClose" class="modal-close" type="button" aria-label="Đóng popup">x</button>
-        </header>
-        <div id="modelDetailContent" class="model-detail-content">
-          <p>Đang tải chi tiết kết quả...</p>
-        </div>
-      </section>
-    </div>
-
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=20260816-mobile-font-detail"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=20260817-mobile-intro-no-repo"></script>
   </body>
 </html>

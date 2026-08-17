@@ -1,7 +1,7 @@
 const IMAGE_LIMIT_BYTES = 10 * 1024 * 1024;
 const SUPPORTED_IMAGES = new Set(["jpg", "jpeg", "png", "webp"]);
 const THEME_KEY = "ai_image_detection_theme";
-const STATIC_VERSION = "20260816-mobile-font-detail";
+const STATIC_VERSION = "20260817-mobile-intro-no-repo";
 
 const state = {
   selectedFile: null,
@@ -195,6 +195,21 @@ function localizeStaticText() {
   ].forEach((text, index) => {
     if (heroItems[index]) heroItems[index].textContent = text;
   });
+
+  setText("#introModalTitle", "Nhận diện ảnh thật và ảnh AI");
+  setText(
+    ".intro-modal-content > p",
+    "Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model."
+  );
+  const introItems = document.querySelectorAll(".intro-modal .hero-guide li");
+  [
+    "Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.",
+    "Xác nhận ảnh xem trước, sau đó bấm Phân tích.",
+    "Xem kết luận, điểm AI và chi tiết xử lý.",
+  ].forEach((text, index) => {
+    if (introItems[index]) introItems[index].textContent = text;
+  });
+  setText("#introModalClose", "Đã hiểu");
 
   setText(".result-panel .panel-header h2", "Kết quả");
   setText(".result-panel .panel-header p", "Dự đoán cuối cùng và thông số xử lý.");
@@ -490,7 +505,7 @@ function clearSelectedImage() {
   renderEmptyPreview();
   setPreviewPanelState();
   renderSummaryIdle("Đang chờ ảnh", "Chưa có kết quả");
-  setMessage("Đã loại ảnh đang tải.", "success");
+  setMessage("");
   syncControlState();
 }
 
@@ -523,7 +538,10 @@ function handleFile(file) {
   $("urlInput").value = "";
 
   const reader = new FileReader();
-  reader.onload = () => renderPreview(reader.result, file.name);
+  reader.onload = () => {
+    if (state.selectedFile !== file) return;
+    renderPreview(reader.result, file.name);
+  };
   reader.readAsDataURL(file);
   updateSelectedInput(`Tệp: ${file.name}`);
   setMessage(`${file.name} đã sẵn sàng để phân tích.`, "success");
@@ -878,47 +896,10 @@ function isMobileViewport() {
   return window.matchMedia("(max-width: 700px)").matches;
 }
 
-function ensureIntroModal() {
-  let modal = $("introModal");
-  if (modal) return modal;
-
-  modal = document.createElement("div");
-  modal.id = "introModal";
-  modal.className = "modal intro-modal";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
-  modal.setAttribute("aria-labelledby", "introModalTitle");
-  modal.hidden = true;
-  modal.innerHTML = `
-    <div class="modal-backdrop" data-intro-modal-close></div>
-    <section class="modal-panel intro-modal-panel">
-      <header class="modal-header">
-        <div>
-          <p class="eyebrow">AI Generated Image Detection</p>
-          <h2 id="introModalTitle">Nhận diện ảnh thật và ảnh AI</h2>
-        </div>
-      </header>
-      <div class="intro-modal-content">
-        <p>Hệ thống hỗ trợ nhận diện dấu hiệu ảnh do AI tạo bằng cách phân tích nội dung ảnh và tổng hợp kết quả từ model.</p>
-        <ol class="hero-guide" aria-label="Hướng dẫn nhanh trên mobile">
-          <li>Tải ảnh lên hoặc dán URL ảnh cần kiểm tra.</li>
-          <li>Xác nhận ảnh xem trước, sau đó bấm Phân tích.</li>
-          <li>Xem kết luận, điểm AI và chi tiết xử lý.</li>
-        </ol>
-        <div class="intro-modal-actions">
-          <button id="introModalClose" class="btn btn-primary" type="button">Đã hiểu</button>
-        </div>
-      </div>
-    </section>
-  `;
-  document.body.appendChild(modal);
-  return modal;
-}
-
 function openIntroModalOnMobile() {
   if (!isMobileViewport()) return;
 
-  const modal = ensureIntroModal();
+  const modal = $("introModal");
   if (!modal) return;
 
   modal.hidden = false;
@@ -1077,9 +1058,9 @@ function bindEvents() {
   $("clearImageButton").addEventListener("click", clearSelectedImage);
   $("modelDetailButton").addEventListener("click", openModelDetail);
   $("modelDetailClose").addEventListener("click", closeModelDetail);
-  const introModal = ensureIntroModal();
+  const introModal = $("introModal");
   $("introModalClose")?.addEventListener("click", closeIntroModal);
-  introModal.addEventListener("click", (event) => {
+  introModal?.addEventListener("click", (event) => {
     if (event.target?.hasAttribute("data-intro-modal-close")) closeIntroModal();
   });
   $("modelDetailModal").addEventListener("click", (event) => {
