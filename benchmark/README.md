@@ -53,6 +53,19 @@ fake_score < threshold  => real
 
 ## Chay benchmark
 
+Lan dau clone repo, tai data OpenFake va clone UniversalFakeDetect:
+
+```powershell
+python benchmark\setup_benchmark.py
+```
+
+Hai thu muc sau duoc tao local va khong can push len git:
+
+```text
+benchmark/data
+benchmark/external
+```
+
 Kiem tra du lieu:
 
 ```powershell
