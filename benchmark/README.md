@@ -20,19 +20,21 @@ Protocol hien tai:
 
 ## Model
 
-1. `Hybrid XRayon Physical`
-   - File: `model/hybrid_xrayon_physical.onnx`
-   - Input: `3 x 224 x 224`
-
-2. `XRayon RGB Only`
-   - File: `model/xrayon_rgb_only.onnx`
+1. `AI Detection`
+   - File: `model/AI Detection.onnx`
    - Input: `3 x 256 x 256`
+   - Output: logits 2 lop, lay fake_score bang softmax class AI
+
+2. `AI Detection + Physic`
+   - File: `model/AI Detection + Physic.onnx`
+   - Input: `3 x 256 x 256`
+   - Output: `prob_ai`
 
 3. `UniversalFakeDetect`
    - Repo: `benchmark/external/UniversalFakeDetect`
    - Paper/repo: `https://github.com/WisconsinAIVision/UniversalFakeDetect`
 
-Voi 2 model ONNX, `fake_score` lay tu output class AI, mac dinh index `1`.
+Voi model ONNX 2 lop, class AI mac dinh index `1`.
 
 ## Threshold
 
@@ -81,7 +83,7 @@ python benchmark\run_models.py --force --batch-size 8
 Neu chi muon chay 2 model ONNX:
 
 ```powershell
-python benchmark\run_models.py --models xrayon --force
+python benchmark\run_models.py --models onnx --force
 ```
 
 Tinh metrics o 3 threshold:
@@ -102,16 +104,16 @@ benchmark/results/openfake_1k/report.json
 Raw score:
 
 ```text
-benchmark/results/openfake_1k/predictions/raw_hybrid_xrayon_physical.csv
-benchmark/results/openfake_1k/predictions/raw_xrayon_rgb_only.csv
+benchmark/results/openfake_1k/predictions/raw_ai_detection.csv
+benchmark/results/openfake_1k/predictions/raw_ai_detection_physic.csv
 benchmark/results/openfake_1k/predictions/raw_universalfakedetect.csv
 ```
 
 Prediction theo threshold:
 
 ```text
-benchmark/results/openfake_1k/predictions/fixed_threshold_predictions_hybrid_xrayon_physical.csv
-benchmark/results/openfake_1k/predictions/fixed_threshold_predictions_xrayon_rgb_only.csv
+benchmark/results/openfake_1k/predictions/fixed_threshold_predictions_ai_detection.csv
+benchmark/results/openfake_1k/predictions/fixed_threshold_predictions_ai_detection_physic.csv
 benchmark/results/openfake_1k/predictions/fixed_threshold_predictions_universalfakedetect.csv
 ```
 

@@ -15,14 +15,14 @@ INT_TO_LABEL = {0: "real", 1: "fake"}
 THRESHOLDS = (0.5, 0.65, 0.8)
 
 RAW_INPUTS = {
-    "Hybrid XRayon Physical": "raw_hybrid_xrayon_physical.csv",
-    "XRayon RGB Only": "raw_xrayon_rgb_only.csv",
+    "AI Detection": "raw_ai_detection.csv",
+    "AI Detection + Physic": "raw_ai_detection_physic.csv",
     "UniversalFakeDetect": "raw_universalfakedetect.csv",
 }
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate 3 benchmark models at fixed thresholds.")
+    parser = argparse.ArgumentParser(description="Evaluate benchmark models at fixed thresholds.")
     parser.add_argument("--output-root", default="benchmark/results/openfake_1k")
     parser.add_argument("--limit-per-label", type=int, default=250)
     return parser.parse_args()

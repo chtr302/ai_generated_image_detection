@@ -25,24 +25,26 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "model"
 AI_CLASS_INDEX_ENV = "AIGID_AI_CLASS_INDEX"
 
-XRAYON_MODEL_SPECS = (
+ONNX_MODEL_SPECS = (
     {
-        "key": "hybrid",
-        "name": "Hybrid XRayon Physical",
-        "filename": "hybrid_xrayon_physical.onnx",
-        "image_size": 224,
+        "key": "ai_detection",
+        "name": "AI Detection",
+        "filename": "AI Detection.onnx",
+        "image_size": 256,
+        "output_mode": "two_class_logits",
     },
     {
-        "key": "rgb",
-        "name": "XRayon RGB Only",
-        "filename": "xrayon_rgb_only.onnx",
+        "key": "ai_detection_physic",
+        "name": "AI Detection + Physic",
+        "filename": "AI Detection + Physic.onnx",
         "image_size": 256,
+        "output_mode": "prob_ai",
     },
 )
 
 RAW_OUTPUTS = {
-    "Hybrid XRayon Physical": "raw_hybrid_xrayon_physical.csv",
-    "XRayon RGB Only": "raw_xrayon_rgb_only.csv",
+    "AI Detection": "raw_ai_detection.csv",
+    "AI Detection + Physic": "raw_ai_detection_physic.csv",
     "UniversalFakeDetect": "raw_universalfakedetect.csv",
 }
 
@@ -82,9 +84,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=["xrayon", "universal", "all"],
+        choices=["onnx", "xrayon", "universal", "all"],
         default=["all"],
-        help="'xrayon' runs both ONNX models; 'universal' runs UniversalFakeDetect.",
+        help="'onnx' runs both local ONNX models; 'xrayon' is kept as an alias; 'universal' runs UniversalFakeDetect.",
     )
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
@@ -101,7 +103,13 @@ def pick_device(requested: str) -> torch.device:
 
 
 def selected_groups(model_args: list[str]) -> set[str]:
-    return {"xrayon", "universal"} if "all" in model_args else set(model_args)
+    if "all" in model_args:
+        return {"onnx", "universal"}
+    groups = set(model_args)
+    if "xrayon" in groups:
+        groups.remove("xrayon")
+        groups.add("onnx")
+    return groups
 
 
 def load_manifest(benchmark_root: Path) -> list[dict[str, str]]:
@@ -161,7 +169,7 @@ def raw_matches_subset(path: Path, rows: list[dict[str, str]]) -> bool:
     return [row["sample_id"] for row in raw_rows] == [row["sample_id"] for row in rows]
 
 
-def preprocess_xrayon_image(image: Image.Image, image_size: int) -> np.ndarray:
+def preprocess_onnx_image(image: Image.Image, image_size: int) -> np.ndarray:
     resize_size = image_size + 32
     width, height = image.size
     scale = resize_size / min(width, height)
@@ -177,14 +185,14 @@ def preprocess_xrayon_image(image: Image.Image, image_size: int) -> np.ndarray:
     return np.expand_dims(array.astype(np.float32), axis=0)
 
 
-def load_xrayon_sessions(model_dir: Path) -> dict[str, Any]:
+def load_onnx_sessions(model_dir: Path) -> dict[str, Any]:
     try:
         import onnxruntime as ort
     except Exception as exc:
         raise RuntimeError("onnxruntime is not installed. Install it with: pip install onnxruntime") from exc
 
     sessions: dict[str, Any] = {}
-    for spec in XRAYON_MODEL_SPECS:
+    for spec in ONNX_MODEL_SPECS:
         path = model_dir / str(spec["filename"])
         if not path.exists():
             raise FileNotFoundError(f"Missing ONNX model: {path}")
@@ -192,7 +200,13 @@ def load_xrayon_sessions(model_dir: Path) -> dict[str, Any]:
     return sessions
 
 
-def run_xrayon_batch(
+def softmax(values: np.ndarray) -> np.ndarray:
+    shifted = values - np.max(values, axis=1, keepdims=True)
+    exp_values = np.exp(shifted)
+    return exp_values / np.sum(exp_values, axis=1, keepdims=True)
+
+
+def run_onnx_batch(
     session: Any,
     spec: dict[str, Any],
     images: list[Image.Image],
@@ -200,21 +214,31 @@ def run_xrayon_batch(
 ) -> list[float]:
     model_input = session.get_inputs()[0]
     model_output = session.get_outputs()[0]
-    tensor = np.concatenate([preprocess_xrayon_image(image, int(spec["image_size"])) for image in images], axis=0)
+    tensor = np.concatenate([preprocess_onnx_image(image, int(spec["image_size"])) for image in images], axis=0)
     raw_output = session.run([model_output.name], {model_input.name: tensor})[0]
     output_values = np.asarray(raw_output, dtype=np.float32)
 
     if output_values.ndim != 2:
         raise RuntimeError(f"Output of {spec['name']} is not a batch matrix.")
-    if output_values.shape[1] < 2:
-        raise RuntimeError(f"Output of {spec['name']} must have at least two classes.")
-    if ai_class_index < 0 or ai_class_index >= output_values.shape[1]:
-        raise RuntimeError(f"{AI_CLASS_INDEX_ENV}={ai_class_index} is invalid for {output_values.shape[1]} classes.")
 
-    return [float(score) for score in output_values[:, ai_class_index].tolist()]
+    output_mode = str(spec["output_mode"])
+    if output_mode == "prob_ai":
+        if output_values.shape[1] != 1:
+            raise RuntimeError(f"Output of {spec['name']} must have exactly one prob_ai column.")
+        scores = output_values[:, 0]
+    elif output_mode == "two_class_logits":
+        if output_values.shape[1] < 2:
+            raise RuntimeError(f"Output of {spec['name']} must have at least two classes.")
+        if ai_class_index < 0 or ai_class_index >= output_values.shape[1]:
+            raise RuntimeError(f"{AI_CLASS_INDEX_ENV}={ai_class_index} is invalid for {output_values.shape[1]} classes.")
+        scores = softmax(output_values)[:, ai_class_index]
+    else:
+        raise RuntimeError(f"Unsupported output mode for {spec['name']}: {output_mode}")
+
+    return [float(score) for score in scores.tolist()]
 
 
-def run_xrayon(
+def run_onnx_models(
     benchmark_root: Path,
     rows: list[dict[str, str]],
     output_root: Path,
@@ -227,25 +251,25 @@ def run_xrayon(
     output_paths = {
         name: predictions_root / filename
         for name, filename in RAW_OUTPUTS.items()
-        if name in {"Hybrid XRayon Physical", "XRayon RGB Only"}
+        if name in {"AI Detection", "AI Detection + Physic"}
     }
     if not force and all(raw_matches_subset(path, rows) for path in output_paths.values()):
         for path in output_paths.values():
             print(f"Reuse raw score: {path}")
         return
 
-    sessions = load_xrayon_sessions(model_dir)
+    sessions = load_onnx_sessions(model_dir)
     raw_rows_by_model: dict[str, list[dict[str, Any]]] = {name: [] for name in output_paths}
 
-    for start in tqdm(range(0, len(rows), batch_size), desc="XRayon ONNX inference"):
+    for start in tqdm(range(0, len(rows), batch_size), desc="Local ONNX inference"):
         batch_rows = rows[start : start + batch_size]
         images: list[Image.Image] = []
         for row in batch_rows:
             with Image.open(benchmark_root / row["relative_path"]) as image_file:
                 images.append(image_file.convert("RGB"))
-        for spec in XRAYON_MODEL_SPECS:
+        for spec in ONNX_MODEL_SPECS:
             model_name = str(spec["name"])
-            fake_scores = run_xrayon_batch(sessions[str(spec["key"])], spec, images, ai_class_index)
+            fake_scores = run_onnx_batch(sessions[str(spec["key"])], spec, images, ai_class_index)
             for row, fake_score in zip(batch_rows, fake_scores):
                 raw_rows_by_model[model_name].append(make_raw_row(row, fake_score))
 
@@ -301,8 +325,8 @@ def main() -> None:
     predictions_root = output_root / "predictions"
     universal_path = predictions_root / RAW_OUTPUTS["UniversalFakeDetect"]
 
-    if "xrayon" in groups:
-        run_xrayon(benchmark_root, rows, output_root, model_dir, args.ai_class_index, args.batch_size, args.force)
+    if "onnx" in groups:
+        run_onnx_models(benchmark_root, rows, output_root, model_dir, args.ai_class_index, args.batch_size, args.force)
 
     if "universal" in groups:
         if args.force or not raw_matches_subset(universal_path, rows):
