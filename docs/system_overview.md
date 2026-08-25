@@ -9,7 +9,7 @@ He thong `AI Generated Image Detection` la web app Flask dung de kiem tra anh da
 | Dau vao | File `jpg/jpeg/png/webp` hoac URL anh `http/https` |
 | Gioi han anh | 10 MB |
 | Ket qua | Nhan du doan, diem AI, confidence, thoi gian xu ly, evidence tung model |
-| Model | `hybrid_xrayon_physical.onnx`, `xrayon_rgb_only.onnx` |
+| Model | `AI Detection.onnx`, `AI Detection + Physic.onnx` |
 | Engine | `onnxruntime` CPU |
 
 ## 2. Thanh phan chinh
@@ -64,8 +64,8 @@ He thong `AI Generated Image Detection` la web app Flask dung de kiem tra anh da
   "final_score": 0.93,
   "selected_confidence": 0.94,
   "selected_model": {
-    "key": "hybrid",
-    "name": "Hybrid XRayon Physical",
+    "key": "ai_detection",
+    "name": "AI Detection",
     "vote": "AI-generated",
     "confidence": 0.94,
     "prob_real": 0.06,
@@ -75,16 +75,16 @@ He thong `AI Generated Image Detection` la web app Flask dung de kiem tra anh da
   "decision_status": "selected_highest_confidence",
   "model_scores": [
     {
-      "key": "hybrid",
-      "model": "Hybrid XRayon Physical",
+      "key": "ai_detection",
+      "model": "AI Detection",
       "prob_real": 0.06,
       "prob_ai": 0.93,
       "confidence": 0.94,
       "vote": "AI-generated"
     },
     {
-      "key": "rgb",
-      "model": "XRayon RGB Only",
+      "key": "ai_detection_physic",
+      "model": "AI Detection + Physic",
       "prob_real": 0.22,
       "prob_ai": 0.78,
       "confidence": 0.78,

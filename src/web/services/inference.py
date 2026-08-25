@@ -42,6 +42,7 @@ MODEL_SPECS = (
         "name": "AI Detection",
         "filename": "AI_Detection.onnx",
         "image_size": 256,
+        "output_kind": "logits",
         "output_mode": "two_class_logits",
         "score_transform": "none",
     },
@@ -50,6 +51,7 @@ MODEL_SPECS = (
         "name": "AI Detection + Physic",
         "filename": "AI_Detection_Physic.onnx",
         "image_size": 256,
+        "output_kind": "prob_ai",
         "output_mode": "probability",
         "score_transform": "none",
     },
@@ -121,7 +123,7 @@ def model_detail_payload(model_enabled: bool) -> dict[str, Any]:
     models = available_model_payloads()
     ready = all(item["found"] for item in models)
     return {
-        "name": "AI Detection Ensemble (2 models)",
+        "name": "AI Detection ONNX Ensemble (2 models)",
         "engine": "onnxruntime",
         "mode": "Sẵn sàng" if ready else "Thiếu file model",
         "model_enabled": model_enabled,
@@ -252,6 +254,8 @@ def get_session(spec: dict[str, Any]) -> Any:
     path = model_path(spec)
     if not path.exists():
         raise RuntimeError(f"Không tìm thấy model: {path}")
+    if path.stat().st_size < 1024:
+        raise RuntimeError(f"File model không hợp lệ hoặc chỉ là Git LFS pointer: {path}")
 
     try:
         import onnxruntime as ort
@@ -274,6 +278,51 @@ def model_worker_pid() -> int | None:
     return _WORKER_PROCESS.pid if model_worker_running() else None
 
 
+def softmax(values: np.ndarray) -> np.ndarray:
+    shifted = values - np.max(values)
+    exp_values = np.exp(shifted)
+    return exp_values / np.sum(exp_values)
+
+
+def probabilities_from_output(
+    spec: dict[str, Any],
+    output_values: np.ndarray,
+    ai_class_index: int,
+) -> tuple[np.ndarray, int, float, float, float]:
+    if output_values.ndim == 2:
+        output_values = output_values[0]
+    if output_values.ndim == 0:
+        output_values = output_values.reshape(1)
+    if output_values.ndim != 1:
+        raise RuntimeError(f"Output model {spec['name']} không đúng dạng vector.")
+
+    output_kind = str(spec.get("output_kind", "probabilities"))
+    if output_values.size == 1:
+        if output_kind == "logit_ai":
+            ai_probability = float(1.0 / (1.0 + np.exp(-output_values[0])))
+        else:
+            ai_probability = float(output_values[0])
+        ai_probability = float(np.clip(ai_probability, 0.0, 1.0))
+        real_probability = 1.0 - ai_probability
+        probabilities = np.asarray([real_probability, ai_probability], dtype=np.float32)
+        predicted_index = int(np.argmax(probabilities))
+        confidence = float(probabilities[predicted_index])
+        return probabilities, predicted_index, real_probability, ai_probability, confidence
+
+    if ai_class_index < 0 or ai_class_index >= output_values.size:
+        raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
+
+    probabilities = softmax(output_values) if output_kind == "logits" else output_values
+    probabilities = np.asarray(probabilities, dtype=np.float32)
+    probabilities = np.clip(probabilities, 0.0, 1.0)
+    predicted_index = int(np.argmax(probabilities))
+    ai_probability = float(probabilities[ai_class_index])
+    real_index = 0 if ai_class_index != 0 else 1
+    real_probability = float(probabilities[real_index])
+    confidence = float(probabilities[predicted_index])
+    return probabilities, predicted_index, real_probability, ai_probability, confidence
+
+
 def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> dict[str, Any]:
     session = get_session(spec)
     model_input = session.get_inputs()[0]
@@ -281,48 +330,21 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
     tensor = preprocess_image(image, int(spec["image_size"]))
     raw_output = session.run([model_output.name], {model_input.name: tensor})[0]
     output_values = np.asarray(raw_output, dtype=np.float32)
-
-    if output_values.ndim == 2:
-        output_values = output_values[0]
-    if output_values.ndim != 1:
-        raise RuntimeError(f"Output model {spec['name']} không đúng dạng vector.")
-
-    output_mode = str(spec.get("output_mode", "two_class_logits"))
-    score_transform = str(spec.get("score_transform", "none"))
-    display_output = output_values
-    if output_mode == "two_class_logits":
-        if output_values.size < 2:
-            raise RuntimeError(f"Output model {spec['name']} cần ít nhất 2 chỉ số class.")
-        if ai_class_index < 0 or ai_class_index >= output_values.size:
-            raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
-        probs = softmax(output_values.astype(np.float32))
-        display_output = probs
-        ai_probability = float(probs[ai_class_index])
-        real_index = 0 if ai_class_index != 0 else 1
-        real_probability = float(probs[real_index])
-        predicted_index = int(np.argmax(probs))
-    elif output_mode == "probability":
-        if output_values.size != 1:
-            raise RuntimeError(f"Output model {spec['name']} cần đúng 1 cột xác suất.")
-        raw_probability = float(output_values[0])
-        ai_probability = 1.0 - raw_probability if score_transform == "invert" else raw_probability
-        ai_probability = max(0.0, min(1.0, ai_probability))
-        real_probability = 1.0 - ai_probability
-        display_output = np.asarray([ai_probability], dtype=np.float32)
-        predicted_index = ai_class_index if ai_probability >= 0.5 else (0 if ai_class_index != 0 else 1)
-    else:
-        raise RuntimeError(f"Output mode không hỗ trợ cho {spec['name']}: {output_mode}")
-
-    confidence = float(max(ai_probability, real_probability))
-    vote_label = "AI-generated" if ai_probability >= 0.5 else "Real"
+    probabilities, predicted_index, real_probability, ai_probability, confidence = probabilities_from_output(
+        spec,
+        output_values,
+        ai_class_index,
+    )
+    vote_label = "AI-generated" if predicted_index == ai_class_index else "Real"
     return {
         "key": spec["key"],
         "model": spec["name"],
         "output_name": model_output.name,
-        "raw_output": [round(float(value), 6) for value in display_output.tolist()],
-        "model_raw_output": [round(float(value), 6) for value in output_values.tolist()],
-        "output_mode": output_mode,
-        "score_transform": score_transform,
+        "raw_output": [round(float(value), 6) for value in probabilities.tolist()],
+        "model_raw_output": [round(float(value), 6) for value in np.ravel(output_values).tolist()],
+        "probabilities": [round(float(value), 6) for value in probabilities.tolist()],
+        "output_mode": spec.get("output_mode", spec.get("output_kind", "probabilities")),
+        "score_transform": spec.get("score_transform", "none"),
         "prob_real": round(real_probability, 6),
         "prob_ai": round(ai_probability, 6),
         "ai_score": round(ai_probability, 4),

@@ -20,5 +20,8 @@ benchmark/data
 benchmark/external
 benchmark/results
 
+# Local ONNX model files are too large for normal GitHub pushes.
+model/*.onnx
+
 pyproject.toml
 uv.lock

@@ -210,7 +210,7 @@ def create_architecture_diagram(path: Path) -> None:
         ((430, 190, 760, 465), "Web UI\nHTML/CSS/JavaScript\nUpload, URL, Preview"),
         ((860, 165, 1190, 490), "Backend Flask API\nValidate input\nModel state\nJSON response"),
         ((1280, 190, 1530, 465), "AI Worker\nONNX Runtime\n2 model sessions"),
-        ((860, 600, 1190, 760), "Model files\nhybrid_xrayon_physical.onnx\nxrayon_rgb_only.onnx"),
+        ((860, 600, 1190, 760), "Model files\nAI Detection.onnx\nAI Detection + Physic.onnx"),
     ]
     colors = ["#dcfce7", "#e0f2fe", "#ede9fe", "#fee2e2", "#fef3c7"]
     outlines = ["#16a34a", "#0284c7", "#7c3aed", "#dc2626", "#d97706"]
@@ -232,8 +232,8 @@ def create_model_pipeline(path: Path) -> None:
     box_font = load_font(25, True)
     d.text((60, 40), "Pipeline suy luận và chọn kết quả cuối cùng", font=title, fill="#111827")
     round_box(d, (80, 355, 300, 505), "Ảnh RGB\nUpload/URL", "#dcfce7", "#16a34a", box_font)
-    round_box(d, (390, 250, 700, 400), "Hybrid XRayon Physical\nInput 224x224\nONNX", "#fee2e2", "#dc2626", box_font)
-    round_box(d, (390, 510, 700, 660), "XRayon RGB Only\nInput 256x256\nONNX", "#e0f2fe", "#0284c7", box_font)
+    round_box(d, (390, 250, 700, 400), "AI Detection\nInput 256x256\nONNX", "#fee2e2", "#dc2626", box_font)
+    round_box(d, (390, 510, 700, 660), "AI Detection + Physic\nInput 256x256\nONNX", "#e0f2fe", "#0284c7", box_font)
     round_box(d, (790, 250, 1080, 400), "Output model 1\nprob_real, prob_ai\nconfidence", "#fff7ed", "#ea580c", box_font)
     round_box(d, (790, 510, 1080, 660), "Output model 2\nprob_real, prob_ai\nconfidence", "#fff7ed", "#ea580c", box_font)
     round_box(d, (1180, 380, 1500, 550), "Chọn model có\nconfidence cao nhất\n=> final_label", "#ede9fe", "#7c3aed", box_font)
@@ -303,8 +303,8 @@ def create_benchmark_chart(path: Path) -> None:
 
 def create_score_distribution(path: Path) -> None:
     files = [
-        ("Hybrid XRayon Physical", PRED_DIR / "raw_hybrid_xrayon_physical.csv"),
-        ("XRayon RGB Only", PRED_DIR / "raw_xrayon_rgb_only.csv"),
+        ("AI Detection", PRED_DIR / "raw_ai_detection.csv"),
+        ("AI Detection + Physic", PRED_DIR / "raw_ai_detection_physic.csv"),
         ("UniversalFakeDetect", PRED_DIR / "raw_universalfakedetect.csv"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.2), dpi=180, sharey=True)

@@ -653,6 +653,7 @@ function scheduleUrlPreviewCheck() {
 function decisionText(status) {
   const map = {
     selected_highest_confidence: "Chọn model tự tin nhất",
+    selected_ai_score_override: "Chọn theo AI score",
   };
   return map[status] || status;
 }
@@ -799,6 +800,7 @@ function renderModelScoreDetail() {
     return `
       <tr>
         <td>${escapeHtml(item.model)}</td>
+        <td>${escapeHtml(item.output_mode || "-")}</td>
         <td>${escapeHtml(Array.isArray(item.raw_output) ? item.raw_output.join(", ") : "-")}</td>
         <td>${Number(item.prob_real).toFixed(6)}</td>
         <td>${Number(item.prob_ai).toFixed(6)}</td>
@@ -819,7 +821,8 @@ function renderModelScoreDetail() {
           <thead>
             <tr>
               <th>Model</th>
-              <th>Output thô</th>
+              <th>Loại output</th>
+              <th>Logit/raw score</th>
               <th>Ảnh thật</th>
               <th>AI</th>
               <th>Độ tin cậy</th>
@@ -828,6 +831,7 @@ function renderModelScoreDetail() {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+        <p class="table-note">Logit/raw score là output gốc của model nên có thể âm; điểm AI dùng cột AI đã chuẩn hóa.</p>
       </div>
     </section>
   `;
