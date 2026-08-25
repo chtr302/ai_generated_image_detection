@@ -22,6 +22,7 @@ IMAGE_LIMIT_BYTES = 10 * 1024 * 1024
 MODEL_DIR_ENV = "AIGID_MODEL_DIR"
 AI_CLASS_INDEX_ENV = "AIGID_AI_CLASS_INDEX"
 WORKER_TIMEOUT_ENV = "AIGID_WORKER_TIMEOUT_SECONDS"
+PHYSIC_AI_OVERRIDE_THRESHOLD_ENV = "AIGID_PHYSIC_AI_OVERRIDE_THRESHOLD"
 
 SUPPORTED_IMAGES = {"jpg", "jpeg", "png", "webp"}
 IMAGE_MIME_TYPES = {
@@ -50,7 +51,7 @@ MODEL_SPECS = (
         "filename": "AI_Detection_Physic.onnx",
         "image_size": 256,
         "output_mode": "probability",
-        "score_transform": "invert",
+        "score_transform": "none",
     },
 )
 
@@ -132,6 +133,8 @@ def model_detail_payload(model_enabled: bool) -> dict[str, Any]:
         "ai_class_index_env": AI_CLASS_INDEX_ENV,
         "worker_running": model_worker_running(),
         "worker_pid": model_worker_pid(),
+        "physic_ai_override_threshold": safe_env_float(PHYSIC_AI_OVERRIDE_THRESHOLD_ENV, 0.5),
+        "physic_ai_override_threshold_env": PHYSIC_AI_OVERRIDE_THRESHOLD_ENV,
         "max_image_mb": IMAGE_LIMIT_BYTES // (1024 * 1024),
         "supported_images": sorted(SUPPORTED_IMAGES),
     }
@@ -286,12 +289,14 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
 
     output_mode = str(spec.get("output_mode", "two_class_logits"))
     score_transform = str(spec.get("score_transform", "none"))
+    display_output = output_values
     if output_mode == "two_class_logits":
         if output_values.size < 2:
             raise RuntimeError(f"Output model {spec['name']} cần ít nhất 2 chỉ số class.")
         if ai_class_index < 0 or ai_class_index >= output_values.size:
             raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
         probs = softmax(output_values.astype(np.float32))
+        display_output = probs
         ai_probability = float(probs[ai_class_index])
         real_index = 0 if ai_class_index != 0 else 1
         real_probability = float(probs[real_index])
@@ -303,6 +308,7 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
         ai_probability = 1.0 - raw_probability if score_transform == "invert" else raw_probability
         ai_probability = max(0.0, min(1.0, ai_probability))
         real_probability = 1.0 - ai_probability
+        display_output = np.asarray([ai_probability], dtype=np.float32)
         predicted_index = ai_class_index if ai_probability >= 0.5 else (0 if ai_class_index != 0 else 1)
     else:
         raise RuntimeError(f"Output mode không hỗ trợ cho {spec['name']}: {output_mode}")
@@ -313,7 +319,8 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
         "key": spec["key"],
         "model": spec["name"],
         "output_name": model_output.name,
-        "raw_output": [round(float(value), 6) for value in output_values.tolist()],
+        "raw_output": [round(float(value), 6) for value in display_output.tolist()],
+        "model_raw_output": [round(float(value), 6) for value in output_values.tolist()],
         "output_mode": output_mode,
         "score_transform": score_transform,
         "prob_real": round(real_probability, 6),
@@ -326,8 +333,16 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
 
 
 def vote(scores: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = max(scores, key=lambda item: float(item["confidence"]))
+    ai_override_threshold = safe_env_float(PHYSIC_AI_OVERRIDE_THRESHOLD_ENV, 0.5)
+    ai_candidates = [item for item in scores if float(item["prob_ai"]) >= ai_override_threshold]
+    if ai_candidates:
+        selected = max(ai_candidates, key=lambda item: float(item["prob_ai"]))
+        decision_status = "selected_ai_score_override"
+    else:
+        selected = max(scores, key=lambda item: float(item["confidence"]))
+        decision_status = "selected_highest_confidence"
     final_label = selected["vote"]
+    votes = {item["vote"] for item in scores}
 
     return {
         "final_label": final_label,
@@ -341,9 +356,11 @@ def vote(scores: list[dict[str, Any]]) -> dict[str, Any]:
             "prob_real": selected["prob_real"],
             "prob_ai": selected["prob_ai"],
             "raw_output": selected["raw_output"],
+            "output_mode": selected["output_mode"],
+            "score_transform": selected["score_transform"],
         },
-        "decision_status": "selected_highest_confidence",
-        "low_confidence": False,
+        "decision_status": decision_status,
+        "low_confidence": len(votes) > 1 or float(selected["confidence"]) < 0.65,
     }
 
 
@@ -354,7 +371,7 @@ def build_explanation(scores: list[dict[str, Any]], voted: dict[str, Any]) -> tu
     )
     selected = voted["selected_model"]["name"]
     label = voted["final_label"]
-    text = f"Kết quả chọn theo model có confidence cao nhất: {selected} => {label}. Output từng model: {names}."
+    text = f"Kết quả chọn theo cấu hình tích hợp model: {selected} => {label}. Output từng model: {names}."
     return text, None
 
 
