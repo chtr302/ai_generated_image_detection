@@ -843,6 +843,8 @@ function renderConfiguredModels(models) {
         <td>${escapeHtml(model.name)}</td>
         <td>${escapeHtml(model.filename)}</td>
         <td>${Number(model.image_size)}px</td>
+        <td>${escapeHtml(model.output_mode || "-")}</td>
+        <td>${escapeHtml(model.score_transform || "none")}</td>
         <td><span class="vote-pill ${statusClass}">${statusText}</span></td>
       </tr>
     `;
@@ -861,6 +863,8 @@ function renderConfiguredModels(models) {
               <th>Model</th>
               <th>Tệp</th>
               <th>Đầu vào</th>
+              <th>Output</th>
+              <th>Score</th>
               <th>Trạng thái</th>
             </tr>
           </thead>

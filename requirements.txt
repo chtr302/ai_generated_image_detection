@@ -1,0 +1,4 @@
+flask>=3.0,<4
+numpy
+pillow
+onnxruntime

@@ -2,10 +2,10 @@
 
 Web app Flask chay local de phat hien anh that hay anh do AI tao ra. App hien tai tich hop truc tiep 2 model ONNX trong thu muc `model/`:
 
-- `hybrid_xrayon_physical.onnx`
-- `xrayon_rgb_only.onnx`
+- `AI_Detection.onnx`
+- `AI_Detection_Physic.onnx`
 
-Web app hien thi output cua tung model va chon ket qua theo model co confidence lon nhat.
+Web app hien thi output cua tung model va chon ket qua theo model co confidence lon nhat. Theo benchmark2, `AI_Detection_Physic.onnx` co chieu score raw bi nguoc tren OpenFake, nen inference web ap dung hau xu ly `score = 1 - raw_score` cho model nay.
 
 Model duoc chay trong worker process rieng. Khi bat model, app chi mo khoa phan tich; model chua load vao RAM. Khi co request phan tich dau tien, worker moi duoc tao va load 2 ONNX model. Khi tat model, worker process bi dung de RAM model duoc tra lai cho he dieu hanh.
 
@@ -28,8 +28,8 @@ src/
 |-- xai/
 benchmark/
 model/
-|-- hybrid_xrayon_physical.onnx
-|-- xrayon_rgb_only.onnx
+|-- AI_Detection.onnx
+|-- AI_Detection_Physic.onnx
 ```
 
 ## Chay web app
@@ -57,7 +57,7 @@ App khong con dung mock model, anh mau, sample route, hoac batch demo trong web 
 
 ## Bien moi truong tuy chon
 
-- `AIGID_MODEL_DIR`: thu muc chua 2 file ONNX, mac dinh la `model/`.
+- `AIGID_MODEL_DIR`: thu muc chua `AI_Detection.onnx` va `AI_Detection_Physic.onnx`, mac dinh la `model/`.
 - `AIGID_AI_CLASS_INDEX`: index lop AI trong output model, mac dinh `1`.
 - `AIGID_MODEL_ENABLED`: dat `0` de tat chuc nang phan tich khi khoi dong.
 - `AIGID_MODEL_CONTROL_KEY`: key bao ve API bat/tat model.

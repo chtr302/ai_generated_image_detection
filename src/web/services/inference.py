@@ -37,16 +37,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "model"
 MODEL_SPECS = (
     {
-        "key": "hybrid",
-        "name": "Hybrid XRayon Physical",
-        "filename": "hybrid_xrayon_physical.onnx",
-        "image_size": 224,
+        "key": "ai_detection",
+        "name": "AI Detection",
+        "filename": "AI_Detection.onnx",
+        "image_size": 256,
+        "output_mode": "two_class_logits",
+        "score_transform": "none",
     },
     {
-        "key": "rgb",
-        "name": "XRayon RGB Only",
-        "filename": "xrayon_rgb_only.onnx",
+        "key": "ai_detection_physic",
+        "name": "AI Detection + Physic",
+        "filename": "AI_Detection_Physic.onnx",
         "image_size": 256,
+        "output_mode": "probability",
+        "score_transform": "invert",
     },
 )
 
@@ -103,6 +107,8 @@ def available_model_payloads() -> list[dict[str, Any]]:
             "name": spec["name"],
             "filename": spec["filename"],
             "image_size": spec["image_size"],
+            "output_mode": spec.get("output_mode", "two_class_logits"),
+            "score_transform": spec.get("score_transform", "none"),
             "path": str(model_path(spec)),
             "found": model_path(spec).exists(),
         }
@@ -114,7 +120,7 @@ def model_detail_payload(model_enabled: bool) -> dict[str, Any]:
     models = available_model_payloads()
     ready = all(item["found"] for item in models)
     return {
-        "name": "XRayon ONNX Ensemble (2 models)",
+        "name": "AI Detection Ensemble (2 models)",
         "engine": "onnxruntime",
         "mode": "Sẵn sàng" if ready else "Thiếu file model",
         "model_enabled": model_enabled,
@@ -229,6 +235,12 @@ def preprocess_image(image: Image.Image, image_size: int) -> np.ndarray:
     return np.expand_dims(array.astype(np.float32), axis=0)
 
 
+def softmax(values: np.ndarray) -> np.ndarray:
+    shifted = values - np.max(values)
+    exp_values = np.exp(shifted)
+    return exp_values / np.sum(exp_values)
+
+
 def get_session(spec: dict[str, Any]) -> Any:
     key = str(spec["key"])
     if key in _SESSIONS:
@@ -271,22 +283,39 @@ def run_model(spec: dict[str, Any], image: Image.Image, ai_class_index: int) -> 
         output_values = output_values[0]
     if output_values.ndim != 1:
         raise RuntimeError(f"Output model {spec['name']} không đúng dạng vector.")
-    if output_values.size < 2:
-        raise RuntimeError(f"Output model {spec['name']} cần ít nhất 2 chỉ số class.")
-    if ai_class_index < 0 or ai_class_index >= output_values.size:
-        raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
 
-    predicted_index = int(np.argmax(output_values))
-    ai_probability = float(output_values[ai_class_index])
-    real_index = 0 if ai_class_index != 0 else 1
-    real_probability = float(output_values[real_index])
-    confidence = float(output_values[predicted_index])
-    vote_label = "AI-generated" if predicted_index == ai_class_index else "Real"
+    output_mode = str(spec.get("output_mode", "two_class_logits"))
+    score_transform = str(spec.get("score_transform", "none"))
+    if output_mode == "two_class_logits":
+        if output_values.size < 2:
+            raise RuntimeError(f"Output model {spec['name']} cần ít nhất 2 chỉ số class.")
+        if ai_class_index < 0 or ai_class_index >= output_values.size:
+            raise RuntimeError(f"{AI_CLASS_INDEX_ENV} không hợp lệ với output {output_values.size} lớp.")
+        probs = softmax(output_values.astype(np.float32))
+        ai_probability = float(probs[ai_class_index])
+        real_index = 0 if ai_class_index != 0 else 1
+        real_probability = float(probs[real_index])
+        predicted_index = int(np.argmax(probs))
+    elif output_mode == "probability":
+        if output_values.size != 1:
+            raise RuntimeError(f"Output model {spec['name']} cần đúng 1 cột xác suất.")
+        raw_probability = float(output_values[0])
+        ai_probability = 1.0 - raw_probability if score_transform == "invert" else raw_probability
+        ai_probability = max(0.0, min(1.0, ai_probability))
+        real_probability = 1.0 - ai_probability
+        predicted_index = ai_class_index if ai_probability >= 0.5 else (0 if ai_class_index != 0 else 1)
+    else:
+        raise RuntimeError(f"Output mode không hỗ trợ cho {spec['name']}: {output_mode}")
+
+    confidence = float(max(ai_probability, real_probability))
+    vote_label = "AI-generated" if ai_probability >= 0.5 else "Real"
     return {
         "key": spec["key"],
         "model": spec["name"],
         "output_name": model_output.name,
         "raw_output": [round(float(value), 6) for value in output_values.tolist()],
+        "output_mode": output_mode,
+        "score_transform": score_transform,
         "prob_real": round(real_probability, 6),
         "prob_ai": round(ai_probability, 6),
         "ai_score": round(ai_probability, 4),
