@@ -104,9 +104,9 @@ sequenceDiagram
     API->>INF: analyze_upload(input_ref, data)
     INF->>WK: Gui job qua Pipe
     WK->>WK: Decode anh -> RGB -> resize/crop/normalize
-    WK->>M1: Chay Hybrid XRayon Physical
+    WK->>M1: Chay AI Detection
     M1-->>WK: score, confidence, vote
-    WK->>M2: Chay XRayon RGB Only
+    WK->>M2: Chay AI Detection + Physic
     M2-->>WK: score, confidence, vote
     WK->>WK: Chon model co confidence cao nhat
     WK-->>INF: Ket qua tong hop
